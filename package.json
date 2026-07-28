@@ -10,8 +10,10 @@
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "db:push": "pnpm --filter @checkout/api db:push",
-    "demo:seed": "tsx scripts/demo-seed.ts",
-    "demo:reset": "tsx scripts/demo-reset.ts"
+    "docs:status-diagram": "node scripts/gen-status-diagram.mjs",
+    "docs:check-status-diagram": "node scripts/gen-status-diagram.mjs --check",
+    "docs:check-domain-boundary": "node scripts/check-domain-boundary.mjs",
+    "sweep": "node scripts/uptime-check.mjs"
   },
   "devDependencies": {
     "turbo": "2.9.18",

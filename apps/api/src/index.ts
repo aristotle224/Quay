@@ -8,6 +8,8 @@ import { webhookRoutes } from "./routes/webhooks";
 import { demoRoutes } from "./routes/demo";
 import { rateLimit } from "./middleware/rate-limit";
 
+const SHUTDOWN_TIMEOUT_MS = env.shutdownTimeoutMs;
+
 async function main(): Promise<void> {
   const container = await createContainer();
 
@@ -20,8 +22,30 @@ async function main(): Promise<void> {
       ok: true,
       network: container.config.network,
       sellerWallet: container.config.sellerWallet,
+      // Anchor health probe + circuit breaker (issue #19, 3.7) so an operator
+      // can tell "the anchor is down" apart from "the API is down" without
+      // tailing logs.
+      anchor: container.service.healthSnapshot(),
     }),
   );
+
+  app.get("/ready", (ctx) => {
+    const circuitBreakers = container.getWatcherCircuitBreakerStatus();
+    const metrics = container.getWatcherMetrics();
+    
+    const hasOpenCircuitBreakers = circuitBreakers.some((cb) => cb.isOpen);
+    
+    return ctx.json({
+      ok: !hasOpenCircuitBreakers,
+      circuitBreakers,
+      metrics: {
+        accountsWatched: metrics.accountsWatched,
+        tickDurationMs: metrics.tickDurationMs,
+        circuitBreakersOpen: metrics.circuitBreakersOpen,
+        perAccountLag: Object.fromEntries(metrics.perAccountLag),
+      },
+    });
+  });
 
   app.route("/links", linkRoutes(container));
   app.route("/webhooks", webhookRoutes(container));
@@ -29,7 +53,7 @@ async function main(): Promise<void> {
 
   container.start();
 
-  serve({ fetch: app.fetch, port: env.apiPort }, (info) => {
+  let server: ReturnType<typeof serve> | undefined = serve({ fetch: app.fetch, port: env.apiPort }, (info) => {
     console.log(`[api] listening on http://localhost:${info.port}`);
     console.log(`[api] network=${container.config.network}  horizon=${container.config.horizonUrl}`);
     console.log(`[api] seller wallet (receives funds): ${container.config.sellerWallet}`);

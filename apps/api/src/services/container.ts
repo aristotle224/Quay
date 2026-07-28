@@ -1,5 +1,5 @@
 import { Keypair, StrKey } from "@stellar/stellar-sdk";
-import { resolveStellarConfig, StellarRail, HorizonWatcher } from "@checkout/stellar";
+import { resolveStellarConfig, StellarRail, HorizonWatcher, StreamingHorizonWatcher } from "@checkout/stellar";
 import { MockAnchorOffRamp, TestAnchorOffRamp } from "@checkout/offramp";
 import type { OffRampPort } from "@checkout/core";
 import { env } from "../env";
@@ -10,8 +10,14 @@ import {
   DrizzleWebhookRepository,
   DrizzleWatcherStateRepository,
 } from "../repos/index";
-import { LinkService } from "./link-service";
-import { WatcherLoop, startCashOutPoller } from "../worker/watcher-loop";
+import { LinkService, AnchorHealth } from "./link-service";
+import {
+  WatcherLoop,
+  startCashOutPoller,
+  startAnchorProbeTimer,
+  type AccountCircuitBreakerStatus,
+  type WatcherMetrics,
+} from "../worker/watcher-loop";
 
 export interface Container {
   service: LinkService;
@@ -21,6 +27,8 @@ export interface Container {
   config: { network: string; horizonUrl: string; sellerWallet: string };
   start(): void;
   stop(): void;
+  getWatcherCircuitBreakerStatus(): AccountCircuitBreakerStatus[];
+  getWatcherMetrics(): WatcherMetrics;
 }
 
 export async function createContainer(): Promise<Container> {
@@ -43,8 +51,16 @@ export async function createContainer(): Promise<Container> {
   await sellersRepo.ensureDefault(sellerWallet, env.defaultSellerName);
 
   const rail = new StellarRail(stellar);
-  const watcher = new HorizonWatcher(stellar.horizonUrl);
+  const watcher =
+    env.watchMode === "stream"
+      ? new StreamingHorizonWatcher(stellar.horizonUrl, { log: (m) => console.log(`[watcher:stream] ${m}`) })
+      : new HorizonWatcher(stellar.horizonUrl);
   const offramp = createOffRamp(seller.keypair);
+
+  // Anchor health probe + circuit breaker (issue #19, 3.7). In mock mode the
+  // probe is disabled and short-circuits to "always available" so the dev
+  // surface still works offline; in testanchor mode we hit the real anchor.
+  const anchorHealth = buildAnchorHealth(env.offramp);
 
   const service = new LinkService({
     links: linksRepo,
@@ -53,6 +69,7 @@ export async function createContainer(): Promise<Container> {
     rail,
     offramp,
     stellar,
+    health: anchorHealth,
   });
 
   const loop = new WatcherLoop({
@@ -65,6 +82,7 @@ export async function createContainer(): Promise<Container> {
   });
 
   let stopPoller: (() => void) | null = null;
+  let stopProbe: (() => void) | null = null;
 
   return {
     service,
@@ -75,12 +93,46 @@ export async function createContainer(): Promise<Container> {
     start() {
       loop.start();
       stopPoller = startCashOutPoller(service, Math.max(3000, env.pollMs));
+      stopProbe = startAnchorProbeTimer(anchorHealth, 60_000);
     },
-    stop() {
-      loop.stop();
+    async stop() {
+      await loop.stop();
       stopPoller?.();
+      if (watcher instanceof StreamingHorizonWatcher) watcher.stop();
+      stopProbe?.();
+      stopPoller = null;
+      stopProbe = null;
+      await client.close();
+      console.log("[api] all services stopped");
+    },
+    getWatcherCircuitBreakerStatus() {
+      return loop.getCircuitBreakerStatus();
+    },
+    getWatcherMetrics() {
+      return loop.getMetrics();
     },
   };
+}
+
+/**
+ * Build an AnchorHealth with sensible defaults anchored at the public Stellar
+ * testnet reference sandbox. Caller can override via env (read raw — we keep
+ * the surface minimal and don't pollute env.ts which lives outside the
+ * scope of issue 3.7).
+ */
+function buildAnchorHealth(offrampKind: "mock" | "testanchor"): AnchorHealth {
+  const enabled = offrampKind === "testanchor";
+  const url = enabled ? process.env.ANCHOR_URL ?? "https://testanchor.stellar.org" : null;
+  const homeDomain = enabled ? process.env.ANCHOR_HOME_DOMAIN ?? "testanchor.stellar.org" : null;
+  const failureThreshold = Number(process.env.ANCHOR_PROBE_FAILURE_THRESHOLD ?? "3");
+  const cooldownMs = Number(process.env.ANCHOR_PROBE_COOLDOWN_MS ?? "30000");
+  return new AnchorHealth({
+    enabled,
+    url,
+    homeDomain,
+    failureThreshold: Number.isFinite(failureThreshold) && failureThreshold > 0 ? failureThreshold : 3,
+    cooldownMs: Number.isFinite(cooldownMs) && cooldownMs > 0 ? cooldownMs : 30_000,
+  });
 }
 
 /**
