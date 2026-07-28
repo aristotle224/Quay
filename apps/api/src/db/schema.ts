@@ -24,6 +24,9 @@ export const links = sqliteTable("links", {
   offrampTargetCurrency: text("offramp_target_currency"),
   offrampStatus: text("offramp_status"),
   expiresAt: integer("expires_at"),
+  /** Set to 1 for rows created by the demo seed script. Shown as a badge in the
+   *  dashboard and cleaned up by `pnpm demo:reset` / POST /demo/reset. */
+  isDemo: integer("is_demo", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

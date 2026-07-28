@@ -16,6 +16,18 @@ function StatusPill({ status }: { status: string }) {
   return <span className={`pill pill--${status}`}>{label}</span>;
 }
 
+function DemoBadge() {
+  return (
+    <span
+      className="pill"
+      style={{ background: "var(--surface-2, #f3f4f6)", color: "var(--text-2, #6b7280)", fontSize: "0.7rem" }}
+      title="Created by the demo seed script — real on-chain testnet data"
+    >
+      demo
+    </span>
+  );
+}
+
 function amountLabel(link: PaymentLink): string {
   return `${link.amount} ${link.asset.code}`;
 }
@@ -137,7 +149,10 @@ export default function Dashboard() {
             <tbody>
               {links.map((link) => (
                 <tr key={link.id}>
-                  <td>{link.title}</td>
+                  <td>
+                    {link.title}
+                    {link.isDemo && <> <DemoBadge /></>}
+                  </td>
                   <td className="amt">{amountLabel(link)}</td>
                   <td><StatusPill status={link.status} /></td>
                   <td className="hide-sm"><span className="mono muted">{link.reference}</span></td>

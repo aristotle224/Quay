@@ -9,11 +9,14 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
-    "db:push": "pnpm --filter @checkout/api db:push"
+    "db:push": "pnpm --filter @checkout/api db:push",
+    "demo:seed": "tsx scripts/demo-seed.ts",
+    "demo:reset": "tsx scripts/demo-reset.ts"
   },
   "devDependencies": {
     "turbo": "2.9.18",
     "typescript": "6.0.3",
-    "@types/node": "25.9.3"
+    "@types/node": "25.9.3",
+    "tsx": "4.22.4"
   }
 }

@@ -22,6 +22,7 @@ function link(over: Partial<PaymentLink> = {}): PaymentLink {
     offrampTargetCurrency: null,
     offrampStatus: null,
     expiresAt: null,
+    isDemo: false,
     createdAt: 0,
     updatedAt: 0,
     ...over,

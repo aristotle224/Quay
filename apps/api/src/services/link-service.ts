@@ -66,6 +66,7 @@ export class LinkService {
       amount: normalizeAmount(body.amount),
       asset,
       expiresAt,
+      isDemo: body.isDemo ?? false,
     });
 
     return { link, request: this.buildRequest(link) };

@@ -102,6 +102,38 @@ pnpm test        # core unit tests
 pnpm build       # builds the web app
 ```
 
+### Demo seed (pre-populated dashboard)
+
+Instead of starting from a blank screen, seed the dashboard with real on-chain testnet data
+in about a minute:
+
+```bash
+# With the API already running on http://localhost:8787:
+pnpm demo:seed
+```
+
+What it does:
+
+1. Generates a fresh buyer keypair and funds it via Friendbot (XLM) and the testanchor USDC
+   dispenser.
+2. Creates several payment links via `POST /links` (flagged as demo data).
+3. Submits real Stellar testnet payments from the buyer to the seller wallet using each link's
+   memo so the on-chain watcher can match them.
+4. Waits for the watcher to mark the links **paid**, then triggers a cash-out on one so the
+   dashboard shows an `offramp_settled` row.
+
+Every seeded row is real on-chain testnet data — nothing is written directly to the database.
+Demo rows are labelled with a **demo** badge in the dashboard so they are easy to tell apart
+from links you create yourself.
+
+```bash
+# Remove all demo-flagged rows:
+pnpm demo:reset
+```
+
+`demo:reset` calls `POST /demo/reset` on the running API (testnet only; returns 403 on
+the public network).
+
 ---
 
 ## What's real vs. stubbed

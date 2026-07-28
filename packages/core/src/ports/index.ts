@@ -110,6 +110,8 @@ export interface CreateLinkInput {
   amount: string;
   asset: AssetRef;
   expiresAt: number | null;
+  /** When true this row was created by the demo seed script. */
+  isDemo?: boolean;
 }
 
 export interface LinkRepository {
