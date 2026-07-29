@@ -13,7 +13,9 @@
     "docs:status-diagram": "node scripts/gen-status-diagram.mjs",
     "docs:check-status-diagram": "node scripts/gen-status-diagram.mjs --check",
     "docs:check-domain-boundary": "node scripts/check-domain-boundary.mjs",
-    "sweep": "node scripts/uptime-check.mjs"
+    "sweep": "node scripts/uptime-check.mjs",
+    "demo:seed": "tsx scripts/demo-seed.ts",
+    "demo:reset": "tsx scripts/demo-reset.ts"
   },
   "devDependencies": {
     "turbo": "2.9.18",

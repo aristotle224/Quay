@@ -110,7 +110,7 @@ function LinksTable({ links, copied, onCopy, onCashOut }: TableProps) {
       <tbody>
         {links.map((link) => (
           <tr key={link.id}>
-            <td>{link.title}</td>
+            <td>{link.title}{link.isDemo && <> <DemoBadge /></>}</td>
             <td className="amt">{amountLabel(link)}</td>
             <td>
               <StatusPill status={link.status} />
