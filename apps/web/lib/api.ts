@@ -1,10 +1,18 @@
-import type { PaymentLink, PaymentRequest } from "@checkout/core";
+import type { KycFieldSpec, KycStatus, PaymentLink, PaymentRequest } from "@checkout/core";
 
 export type { PaymentLink, PaymentRequest };
 
 export interface LinkWithRequest {
   link: PaymentLink;
   request: PaymentRequest;
+}
+
+export interface KycView {
+  status: KycStatus;
+  requiredFields: KycFieldSpec[];
+  providedFields: Record<string, string>;
+  message: string | null;
+  lastSyncedAt: number | null;
 }
 
 // Browser calls go to NEXT_PUBLIC_API_URL; server-side calls fall back to API_URL.
@@ -24,8 +32,9 @@ export type ApiErrorCode =
   | "not_found"
   | "invalid_body"
   | "conflict"
-  | "unreachable"   // synthetic — fetch itself threw (DNS / network down)
-  | "server_error";  // 5xx or unexpected non-JSON response
+  | "kyc_required" // seller's SEP-12 KYC isn't ACCEPTED yet — see `missingFields`
+  | "unreachable" // synthetic — fetch itself threw (DNS / network down)
+  | "server_error"; // 5xx or unexpected non-JSON response
 
 /** Structured error thrown by http() so callers can branch on code. */
 export class CheckoutError extends Error {
@@ -33,6 +42,8 @@ export class CheckoutError extends Error {
     readonly code: ApiErrorCode,
     readonly status: number,
     detail: string,
+    /** Set when `code === "kyc_required"` and the API named specific missing fields. */
+    readonly missingFields?: string[],
   ) {
     super(`${code} (${status}): ${detail}`);
     this.name = "CheckoutError";
@@ -48,6 +59,8 @@ export function describeError(err: CheckoutError): string {
       return "The data sent to the server was invalid. Check your inputs and try again.";
     case "conflict":
       return "This action cannot be completed right now. The link may be in an unexpected state. Try refreshing.";
+    case "kyc_required":
+      return "Identity verification is required before you can cash out. See the panel above.";
     case "unreachable":
       return "We can't reach the payment service right now. Check your connection and try again.";
     case "server_error":
@@ -80,9 +93,11 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     let apiCode: string | undefined;
+    let missingFields: string[] | undefined;
     try {
-      const body = (await res.json()) as { error?: string };
+      const body = (await res.json()) as { error?: string; missingFields?: string[] };
       apiCode = body.error;
+      missingFields = body.missingFields;
     } catch {
       // response wasn't JSON
     }
@@ -95,9 +110,11 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
             ? "not_found"
             : apiCode === "invalid_body"
               ? "invalid_body"
-              : "server_error";
+              : apiCode === "kyc_required"
+                ? "kyc_required"
+                : "server_error";
     const detail = apiCode ?? res.statusText;
-    throw new CheckoutError(code, res.status, detail);
+    throw new CheckoutError(code, res.status, detail, missingFields);
   }
 
   return res.json() as Promise<T>;
@@ -127,4 +144,9 @@ export const api = {
       `/links/${id}/cash-out`,
       { method: "POST", body: JSON.stringify({ targetCurrency, payoutFields }) },
     ),
+
+  getKyc: () => http<KycView>("/seller/kyc"),
+
+  submitKyc: (fields: Record<string, string>) =>
+    http<KycView>("/seller/kyc", { method: "PUT", body: JSON.stringify(fields) }),
 };

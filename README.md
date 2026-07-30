@@ -1,10 +1,9 @@
 # Stellar Checkout
 
-[![CI](https://github.com/chris-ostrovskis/Quay/actions/workflows/ci.yml/badge.svg)](https://github.com/chris-ostrovskis/Quay/actions/workflows/ci.yml)
-[![Anchor Probe](https://github.com/chris-ostrovskis/Quay/actions/workflows/anchor-probe.yml/badge.svg)](https://github.com/chris-ostrovskis/Quay/actions/workflows/anchor-probe.yml)
+[![CI](https://github.com/determined-001/Quay/actions/workflows/ci.yml/badge.svg)](https://github.com/determined-001/Quay/actions/workflows/ci.yml)
+[![Anchor Probe](https://github.com/determined-001/Quay/actions/workflows/anchor-probe.yml/badge.svg)](https://github.com/determined-001/Quay/actions/workflows/anchor-probe.yml)
 
-Non-custodial stablecoin **checkout + payment links** on Stellar, with a deliberately
-**swappable off-ramp seam** so the seller can later cash out to local currency without a rewrite.
+Stellar Checkout is the open-source, non-custodial merchant checkout for the Stellar anchor network — the inbound counterpart to the Stellar Disbursement Platform.
 
 **Live demo (Stellar testnet):** [dashboard](https://quay-web.vercel.app) ·
 [API](https://quay-api.onrender.com/health) — create a link, pay it from any
@@ -29,6 +28,79 @@ The loop, end to end:
 
 This is the non-custodial version of a hosted checkout (think Stripe-style PaymentIntent),
 built on the chain whose anchor network can actually settle to local rails.
+
+---
+
+## Quickstart (5-Minute Integration)
+
+### 1. Install the Widget
+Embed the lightweight modal checkout script tag in your HTML and attach it to any button:
+
+```html
+<!-- Include widget script -->
+<script src="https://quay-web.vercel.app/widget.js"></script>
+
+<!-- Pay button bound to link ID -->
+<button data-stellar-checkout="lnk_123">Pay with USDC</button>
+
+<!-- Or trigger programmatically in JavaScript -->
+<script>
+  StellarCheckout.open("lnk_123");
+</script>
+```
+
+### 2. Create a Link via API
+Generate a payment link from your backend server:
+
+```bash
+curl -X POST https://quay-api.onrender.com/links \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "T-shirt",
+    "amount": "10.50",
+    "assetCode": "USDC"
+  }'
+```
+
+**Response (201 Created):**
+```json
+{
+  "link": {
+    "id": "lnk_123",
+    "reference": "ref_abc",
+    "status": "pending",
+    "title": "T-shirt",
+    "amount": "10.50",
+    "asset": { "code": "USDC", "issuer": "GBBD456..." },
+    "destination": "GAHK789..."
+  },
+  "request": {
+    "uri": "web+stellar:pay?destination=GAHK789...&amount=10.50&memo=ref_abc",
+    "memo": "ref_abc",
+    "memoType": "text"
+  }
+}
+```
+
+### 3. Receive the Webhook
+Register your endpoint to receive real-time JSON notifications when payments land on-chain:
+
+```bash
+curl -X POST https://quay-api.onrender.com/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{ "url": "https://your-domain.com/api/webhooks/checkout" }'
+```
+
+Verify incoming HMAC-SHA256 signatures (`x-checkout-signature: sha256=<hex>`) in your webhook route:
+
+```javascript
+const crypto = require("crypto");
+
+function verifyWebhookSignature(rawBody, signatureHeader, secret) {
+  const expected = "sha256=" + crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signatureHeader));
+}
+```
 
 ---
 
@@ -65,7 +137,7 @@ packages/
   offramp/     Off-ramp adapter — MockAnchorOffRamp (OffRampPort, seller_initiated).  *** mock ***
 apps/
   api/         Hono API + Drizzle (libSQL) + the ledger-watching worker.
-  web/         Next.js (App Router) seller dashboard + buyer checkout page.
+  web/         Next.js (App Router) seller dashboard + buyer checkout page + widget.js.
 ```
 
 `core` is the only package with business logic worth unit-testing in isolation, and it is:
@@ -154,6 +226,7 @@ the public network).
 | Status lifecycle, webhooks (HMAC-SHA256 signed) | **Real**. |
 | Persistence | **Real**, libSQL/SQLite for zero-config local dev (swap the `DATABASE_URL` for Turso/Postgres). Tables self-initialize on boot. |
 | Off-ramp (`@checkout/offramp`) | **Real, opt-in.** Set `OFFRAMP=testanchor` for a genuine SEP-10 → SEP-38 → SEP-6 flow against the public Stellar testnet anchor (`https://testanchor.stellar.org`). Defaults to `OFFRAMP=mock` (`MockAnchorOffRamp`, fake FX rate, no money moves) for offline dev — the dashboard labels the cash-out button "(simulated)" whenever mock mode is active. |
+| Embeddable widget (`/widget.js`) | **Real**, lightweight embeddable script rendering modal checkout. |
 | Auth | **Not implemented.** Single hard-coded demo seller, no API keys / login. Fine for a demo, not for production. |
 
 ---
@@ -181,7 +254,9 @@ the public network).
 ## Docs & contributing
 
 - **[Architecture](docs/ARCHITECTURE.md)** — package graph, the three ports, sequence diagrams for each flow, the status machine, and how to add a new chain/anchor/rail.
+- **[Triage & review SLAs](docs/TRIAGE.md)** — issue taxonomy, 48h labelling SLA, and the stale-issue policy.
 - **[HTTP API reference](docs/API.md)** — endpoints, request/response shapes, and webhook delivery.
+- **[SCF Build proposal](docs/PROPOSAL.md)** — the problem, the wedge, milestones, budget, traction, and risk register.
 - **[Contributing](CONTRIBUTING.md)** — setup, the check suite, and PR guidelines.
 - **[Security policy](SECURITY.md)** — how to report a vulnerability privately.
 - **[Code of conduct](CODE_OF_CONDUCT.md)**.

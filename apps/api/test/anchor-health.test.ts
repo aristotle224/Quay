@@ -1,14 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
+  type KycPort,
+  type KycRecord,
   type LinkRepository,
   type NormalizedPayment,
   type OffRampJob,
   type OffRampJobStatus,
   type OffRampPort,
   type OffRampQuote,
+  type OffRampStateRepository,
   type PaymentLink,
   type RailPort,
   type Seller,
+  type StoredOffRampJob,
+  type StoredOffRampQuote,
   type Webhook,
   type WebhookDelivery,
   type WebhookRepository,
@@ -26,6 +31,7 @@ function link(over: Partial<PaymentLink> = {}): PaymentLink {
     reference: "ref_1",
     sellerId: "s_1",
     destination: DEST,
+    muxedId: null,
     title: "Test",
     amount: "10",
     asset: { code: "USDC", issuer: ISSUER },
@@ -233,6 +239,7 @@ class FakeLinkRepoForAnchor implements LinkRepository {
       reference: input.reference,
       sellerId: input.sellerId,
       destination: input.destination,
+      muxedId: input.muxedId,
       title: input.title,
       amount: input.amount,
       asset: input.asset,
@@ -310,6 +317,54 @@ class FakeRailForAnchor implements RailPort {
   isValidDestination = (a: string): boolean => a.length > 0;
 }
 
+/** Not exercised by these anchor-health tests — just satisfies the constructor. */
+class FakeOffRampStateForAnchor implements OffRampStateRepository {
+  private readonly quotes = new Map<string, StoredOffRampQuote>();
+  private readonly jobs = new Map<string, StoredOffRampJob>();
+  async saveQuote(quote: StoredOffRampQuote): Promise<void> {
+    this.quotes.set(quote.quoteId, quote);
+  }
+  async getQuote(quoteId: string): Promise<StoredOffRampQuote | null> {
+    return this.quotes.get(quoteId) ?? null;
+  }
+  async saveJob(job: StoredOffRampJob): Promise<void> {
+    this.jobs.set(job.jobId, job);
+  }
+  async getJob(jobId: string): Promise<StoredOffRampJob | null> {
+    return this.jobs.get(jobId) ?? null;
+  }
+  async updateJob(
+    jobId: string,
+    patch: Partial<Pick<StoredOffRampJob, "targetAmount" | "status" | "externalStatus" | "lastError">>,
+  ): Promise<void> {
+    const job = this.jobs.get(jobId);
+    if (!job) return;
+    this.jobs.set(jobId, { ...job, ...patch, updatedAt: Date.now() });
+  }
+}
+
+/** Always ACCEPTED — these anchor-health tests aren't exercising the KYC gate. */
+class FakeKycAlwaysAcceptedForAnchor implements KycPort {
+  async status(sellerId: string): Promise<KycRecord> {
+    return this.accepted(sellerId);
+  }
+  async submit(sellerId: string): Promise<KycRecord> {
+    return this.accepted(sellerId);
+  }
+  private accepted(sellerId: string): KycRecord {
+    return {
+      sellerId,
+      customerId: null,
+      status: "ACCEPTED",
+      requiredFields: [],
+      providedFields: {},
+      message: null,
+      lastSyncedAt: null,
+      updatedAt: Date.now(),
+    };
+  }
+}
+
 interface FlakyOffRampOpts {
   quoteShouldThrow?: boolean;
   status?: OffRampJobStatus;
@@ -369,8 +424,11 @@ function buildSvcWithHealth(health: AnchorHealth, offramp: OffRampPort): Svc {
     webhooks,
     rail: new FakeRailForAnchor(),
     offramp,
+    offrampState: new FakeOffRampStateForAnchor(),
+    kyc: new FakeKycAlwaysAcceptedForAnchor(),
     stellar: STELLAR,
     health,
+    correlation: "memo",
   });
   const captureRoute = new Hono();
   // Mirror the production cash-out route shape for HTTP-level assertions.
@@ -384,7 +442,10 @@ function buildSvcWithHealth(health: AnchorHealth, offramp: OffRampPort): Svc {
       return ctx.json({ job }, 200);
     } catch (err) {
       if (err instanceof Error && "status" in err) {
-        return ctx.json({ error: (err as Error).message }, (err as { status: number }).status);
+        return ctx.json(
+          { error: (err as Error).message },
+          (err as { status: number }).status as 403 | 404 | 409 | 502 | 503,
+        );
       }
       throw err;
     }
@@ -548,8 +609,11 @@ describe("LinkService.pollCashOuts attribution", () => {
       webhooks,
       rail: new FakeRailForAnchor(),
       offramp,
+      offrampState: new FakeOffRampStateForAnchor(),
+      kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
+      correlation: "memo",
     });
 
     await repo.save(
@@ -593,8 +657,11 @@ describe("LinkService.pollCashOuts attribution", () => {
       webhooks,
       rail: new FakeRailForAnchor(),
       offramp,
+      offrampState: new FakeOffRampStateForAnchor(),
+      kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
+      correlation: "memo",
     });
     await repo.save(
       link({
@@ -609,11 +676,16 @@ describe("LinkService.pollCashOuts attribution", () => {
     await service.pollCashOuts();
     expect(service.lastPollErrorFor("lnk_2")).toContain("first attempt fails");
 
-    // Per-job backoff sets next_try_at into the future; wait it out so the
-    // next poll actually re-hits status() and clears the error on success.
-    await new Promise((r) => setTimeout(r, 2_100));
+    // Per-job backoff sets next_try_at into the future. Advance the clock past
+    // it rather than sleeping: the first backoff is POLL_BACKOFF_BASE_MS (2s),
+    // and a real 2.1s sleep left only a 100ms margin, which a loaded machine
+    // eats — the poll then hit the `now < next` skip and the error was never
+    // cleared. Moving the clock makes the wait exact and the test instant.
+    const realNow = Date.now.bind(Date);
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => realNow() + 10_000);
     fail = false;
     await service.pollCashOuts();
+    nowSpy.mockRestore();
     expect(service.lastPollErrorFor("lnk_2")).toBeNull();
     expect((await repo.findById("lnk_2"))!.status).toBe("offramp_settled");
   });
@@ -630,8 +702,11 @@ describe("LinkService.pollCashOuts attribution", () => {
       webhooks,
       rail: new FakeRailForAnchor(),
       offramp,
+      offrampState: new FakeOffRampStateForAnchor(),
+      kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
+      correlation: "memo",
     });
     await repo.save(
       link({ id: "lnk_3", status: "offramp_pending", offrampJobId: "ofr_x", offrampTargetCurrency: "NGN" }),
@@ -664,8 +739,11 @@ describe("LinkService.pollCashOuts attribution", () => {
       webhooks,
       rail: new FakeRailForAnchor(),
       offramp,
+      offrampState: new FakeOffRampStateForAnchor(),
+      kyc: new FakeKycAlwaysAcceptedForAnchor(),
       stellar: STELLAR,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
+      correlation: "memo",
     });
     await repo.save(
       link({ id: "lnk_bo", status: "offramp_pending", offrampJobId: "ofr_bo", offrampTargetCurrency: "NGN" }),

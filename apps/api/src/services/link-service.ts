@@ -1,22 +1,25 @@
 import {
   canTransition,
   normalizeAmount,
+  OffRampJobNotFoundError,
   type CashOutBody,
   type CreateLinkBody,
+  type KycPort,
   type LinkRepository,
   type MatchOutcome,
   type NormalizedPayment,
   type OffRampJob,
   type OffRampQuote,
   type OffRampPort,
+  type OffRampStateRepository,
   type PaymentLink,
   type PaymentRequest,
   type RailPort,
   type SellerRepository,
   type WebhookRepository,
 } from "@checkout/core";
-import { resolveAsset, type StellarConfig } from "@checkout/stellar";
-import { newId, newReference } from "./ids";
+import { canReceiveAsset, resolveAsset, type StellarConfig } from "@checkout/stellar";
+import { newId, newMuxedId, newReference } from "./ids";
 import { WebhookSender } from "./webhook-sender";
 
 export interface LinkWithRequest {
@@ -225,12 +228,16 @@ export class LinkService {
       webhooks: WebhookRepository;
       rail: RailPort;
       offramp: OffRampPort;
+      offrampState: OffRampStateRepository;
+      kyc: KycPort;
       stellar: StellarConfig;
       /**
        * Optional anchor health probe. When omitted we default to a no-op
        * "always available" probe so existing test fixtures stay lightweight.
        */
       health?: AnchorHealth;
+      // "memo" (default) or "muxed" — see packages/stellar/src/stellar-rail.ts.
+      correlation: "memo" | "muxed";
     },
   ) {
     this.sender = new WebhookSender(deps.webhooks);
@@ -244,6 +251,7 @@ export class LinkService {
       amount: link.amount,
       asset: link.asset,
       reference: link.reference,
+      muxedId: link.muxedId,
       message: link.title,
     });
   }
@@ -255,11 +263,21 @@ export class LinkService {
       ? Date.now() + body.expiresInMinutes * 60_000
       : null;
 
+    let muxedId: string | null = null;
+    if (this.deps.correlation === "muxed") {
+      const preflight = await canReceiveAsset(this.deps.stellar.horizonUrl, seller.wallet, asset);
+      if (!preflight.ok) {
+        throw new HttpError(422, `Cannot create a muxed payment link: ${preflight.reason}`);
+      }
+      muxedId = newMuxedId();
+    }
+
     const link = await this.deps.links.create({
       id: newId("lnk"),
       reference: newReference(),
       sellerId: seller.id,
       destination: seller.wallet,
+      muxedId,
       title: body.title,
       amount: normalizeAmount(body.amount),
       asset,
@@ -329,11 +347,21 @@ export class LinkService {
       throw new HttpError(503, "anchor_unavailable");
     }
 
+    // KYC is keyed by seller, never by link — a live cash-out is impossible
+    // until the anchor has actually accepted this seller's identity. `status()`
+    // re-syncs rather than trusting a cached value, since paying out against
+    // stale/rejected KYC is exactly the failure this gate exists to prevent.
+    const kyc = await this.deps.kyc.status(link.sellerId);
+    if (kyc.status !== "ACCEPTED") {
+      throw new HttpError(403, "kyc_required");
+    }
+
     const sourceAmount = link.paidAmount ?? link.amount;
     let quote: OffRampQuote;
     let job: OffRampJob;
     try {
       quote = await this.deps.offramp.quote({
+        linkId: link.id,
         sourceAsset: link.asset,
         sourceAmount,
         targetCurrency: body.targetCurrency,
@@ -362,7 +390,12 @@ export class LinkService {
     const pending = await this.deps.links.listByStatus("offramp_pending");
     const now = Date.now();
     for (const link of pending) {
-      if (!link.offrampJobId) continue;
+      if (!link.offrampJobId) {
+        // Should never happen going forward (triggerCashOut always sets it),
+        // but a link like this can't ever resolve — same fate as a lost job.
+        await this.markOffRampFailed(link, "job_state_lost");
+        continue;
+      }
       // Per-job backoff: while the anchor is sick we don't re-ping it on every
       // tick. Skip links whose `next_try_at` is still in the future.
       const next = this.nextPollAtByLinkId.get(link.id);
@@ -376,6 +409,16 @@ export class LinkService {
         this.consecutivePollErrorsByLinkId.delete(link.id);
         this.nextPollAtByLinkId.delete(link.id);
       } catch (err) {
+        if (err instanceof OffRampJobNotFoundError) {
+          // The adapter has no state for this job id at all — not a transient
+          // hiccup, it will never resolve on its own. Fail it out so the
+          // seller has a path forward instead of silent purgatory forever.
+          await this.markOffRampFailed(link, "job_state_lost");
+          this.lastPollErrorByLinkId.delete(link.id);
+          this.consecutivePollErrorsByLinkId.delete(link.id);
+          this.nextPollAtByLinkId.delete(link.id);
+          continue;
+        }
         // ATTRIBUTABLE: record the error against the link id so it can be
         // exposed in a follow-up PR (and is logged now). Without this catch
         // the swallowed error meant a downed anchor's failures evaporated.
@@ -422,6 +465,33 @@ export class LinkService {
    */
   healthSnapshot(): AnchorHealthSnapshot {
     return this.health.snapshot();
+  }
+
+  /**
+   * Boot-time repair: a link can be stuck in `offramp_pending` with a job id
+   * that has no corresponding row in the off-ramp state store — the fallout
+   * of the pre-fix in-memory Maps not surviving a restart. Nothing can recover
+   * that lost job state, so move the link to `offramp_failed` (a domain-level
+   * retryable state) instead of leaving it in permanent limbo.
+   */
+  async backfillLostOffRampJobs(): Promise<number> {
+    const pending = await this.deps.links.listByStatus("offramp_pending");
+    let fixed = 0;
+    for (const link of pending) {
+      const job = link.offrampJobId ? await this.deps.offrampState.getJob(link.offrampJobId) : null;
+      if (job) continue;
+      await this.markOffRampFailed(link, "job_state_lost");
+      fixed++;
+    }
+    return fixed;
+  }
+
+  private async markOffRampFailed(link: PaymentLink, reason: string): Promise<void> {
+    if (!canTransition(link.status, "offramp_failed")) return;
+    link.status = "offramp_failed";
+    link.offrampStatus = "failed";
+    await this.deps.links.save(link);
+    await this.fireWebhook(link, "offramp.failed", { reason });
   }
 
   private async fireWebhook(

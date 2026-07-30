@@ -1,4 +1,10 @@
-import type { HorizonClient, HorizonPaymentRecord, PaymentsCallBuilder } from "../src/horizon-client";
+import type {
+  HorizonAccount,
+  HorizonAccountBalance,
+  HorizonClient,
+  HorizonPaymentRecord,
+  PaymentsCallBuilder,
+} from "../src/horizon-client";
 
 interface Listener {
   onmessage: (record: HorizonPaymentRecord) => void;
@@ -28,9 +34,26 @@ export class FakeHorizonClient implements HorizonClient {
   private readonly ledger = new Map<string, HorizonPaymentRecord[]>();
   private readonly listeners = new Map<string, Set<Listener>>();
   private notFoundAccounts = new Set<string>();
+  private readonly balances = new Map<string, HorizonAccountBalance[]>();
 
   payments(): PaymentsCallBuilder {
     return new FakeBuilder(this);
+  }
+
+  async loadAccount(account: string): Promise<HorizonAccount> {
+    if (this.notFoundAccounts.has(account)) {
+      const err = new Error("not found") as Error & { response: { status: number } };
+      err.response = { status: 404 };
+      throw err;
+    }
+    return { balances: this.balances.get(account) ?? [] };
+  }
+
+  /** Registers a trustline (with balance/limit) for `loadAccount`-based preflight checks. */
+  setTrustline(account: string, line: HorizonAccountBalance): void {
+    const list = this.balances.get(account) ?? [];
+    list.push(line);
+    this.balances.set(account, list);
   }
 
   /** Marks an account as never-created on-chain: call()/stream() surface a 404. */

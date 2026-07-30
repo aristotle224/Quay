@@ -1,30 +1,35 @@
 {
   "targets": {
     "api": {
-      "consecutiveFailures": 5,
-      "lastStatus": "down",
-      "lastCheckedAt": "2026-07-29T04:31:16.463Z",
+      "consecutiveFailures": 0,
+      "lastStatus": "up",
+      "lastCheckedAt": "2026-07-30T17:53:25.531Z",
       "today": {
-        "date": "2026-07-29",
-        "up": 0,
-        "down": 2
+        "date": "2026-07-30",
+        "up": 5,
+        "down": 4
       },
       "history": [
         {
           "date": "2026-07-28",
           "up": 0,
           "down": 3
+        },
+        {
+          "date": "2026-07-29",
+          "up": 0,
+          "down": 13
         }
       ],
-      "lastError": "This operation was aborted"
+      "lastError": null
     },
     "web": {
       "consecutiveFailures": 0,
       "lastStatus": "up",
-      "lastCheckedAt": "2026-07-29T04:31:16.717Z",
+      "lastCheckedAt": "2026-07-30T17:53:25.735Z",
       "today": {
-        "date": "2026-07-29",
-        "up": 2,
+        "date": "2026-07-30",
+        "up": 9,
         "down": 0
       },
       "history": [
@@ -32,27 +37,37 @@
           "date": "2026-07-28",
           "up": 3,
           "down": 0
+        },
+        {
+          "date": "2026-07-29",
+          "up": 13,
+          "down": 0
         }
       ],
       "lastError": null
     },
     "synthetic": {
-      "consecutiveFailures": 5,
-      "lastStatus": "down",
-      "lastCheckedAt": "2026-07-29T04:31:31.719Z",
+      "consecutiveFailures": 0,
+      "lastStatus": "up",
+      "lastCheckedAt": "2026-07-30T17:53:26.131Z",
       "today": {
-        "date": "2026-07-29",
-        "up": 0,
-        "down": 2
+        "date": "2026-07-30",
+        "up": 5,
+        "down": 4
       },
       "history": [
         {
           "date": "2026-07-28",
           "up": 0,
           "down": 3
+        },
+        {
+          "date": "2026-07-29",
+          "up": 0,
+          "down": 13
         }
       ],
-      "lastError": "This operation was aborted"
+      "lastError": null
     }
   }
 }

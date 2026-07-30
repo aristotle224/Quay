@@ -34,7 +34,7 @@ export function linkRoutes(c: Container): Hono {
       const job = await c.service.triggerCashOut(ctx.req.param("id"), parsed.data);
       return ctx.json({ job });
     } catch (err) {
-      if (err instanceof HttpError) return ctx.json({ error: err.message }, err.status as 404 | 409 | 502);
+      if (err instanceof HttpError) return ctx.json({ error: err.message }, err.status as 403 | 404 | 409 | 502);
       throw err;
     }
   });

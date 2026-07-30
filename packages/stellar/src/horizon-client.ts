@@ -18,8 +18,22 @@ export interface PaymentsCallBuilder {
   }): () => void;
 }
 
+/** Slice of a Horizon account's balances that preflight checks care about. */
+export interface HorizonAccountBalance {
+  asset_type: string;
+  asset_code?: string;
+  asset_issuer?: string;
+  balance: string;
+  limit?: string;
+}
+
+export interface HorizonAccount {
+  balances: HorizonAccountBalance[];
+}
+
 export interface HorizonClient {
   payments(): PaymentsCallBuilder;
+  loadAccount(account: string): Promise<HorizonAccount>;
 }
 
 export type HorizonPaymentRecord =

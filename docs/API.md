@@ -129,6 +129,54 @@ Seller-initiated off-ramp of a **paid** link to local currency. Runs
 ```
 **409** — link is not in `paid` state: `{ "error": "Link must be paid to cash out (is \"pending\")" }`
 **404** — `{ "error": "Link not found" }`
+**403** — `{ "error": "kyc_required" }`. Only possible with `OFFRAMP=testanchor`: the
+seller's SEP-12 KYC (see below) hasn't reached `ACCEPTED` yet. `payoutFields` is
+bank/routing info only — it is never used as a source of identity data.
+
+---
+
+## `GET /seller/kyc`
+
+Current SEP-12 requirements and status for the seller, re-synced from the anchor
+(`OFFRAMP=mock` always reports `ACCEPTED` — there's no real anchor to satisfy).
+
+**200**
+```json
+{
+  "status": "NEEDS_INFO",
+  "requiredFields": [
+    { "name": "first_name", "type": "string", "optional": false },
+    { "name": "email_address", "type": "string", "optional": false }
+  ],
+  "providedFields": { "first_name": "Ada" },
+  "message": null,
+  "lastSyncedAt": 1750000000000
+}
+```
+`status` is one of `unsubmitted | NEEDS_INFO | PROCESSING | ACCEPTED | REJECTED`.
+
+---
+
+## `PUT /seller/kyc`
+
+Submit or update identity fields. Values are sent to the anchor **exactly as
+given** — no field is ever defaulted or fabricated. Call with `{}` to kick off
+discovery before any fields are known.
+
+**Request**
+```json
+{ "first_name": "Ada", "email_address": "ada@example.org" }
+```
+
+**200** — same shape as `GET /seller/kyc`, reflecting the anchor's response
+(which may reveal further required fields — SEP-12 discovery is progressive).
+
+**422**
+```json
+{ "error": "kyc_required", "missingFields": ["email_address"] }
+```
+Returned when a field the anchor is already known to require is missing —
+naming exactly which ones, never silently substituting a placeholder.
 
 ---
 

@@ -87,6 +87,12 @@ a { color: inherit; }
 .muted { color: var(--muted); }
 .linkbtn { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 12px; padding: 0; font-family: var(--sans); }
 .linkbtn:hover { text-decoration: underline; }
+.linkbtn:disabled { color: var(--muted); cursor: not-allowed; text-decoration: none; }
+
+.kyc-note { border-radius: 6px; padding: 10px 12px; font-size: 13px; margin-bottom: 14px; border: 1px solid var(--border); }
+.kyc-note--ok { color: var(--accent); border-color: currentColor; background: rgba(63, 217, 164, 0.08); }
+.kyc-note--pending { color: var(--amber); border-color: currentColor; background: rgba(232, 184, 75, 0.08); }
+.kyc-note--rejected { color: var(--red); border-color: currentColor; background: rgba(232, 115, 107, 0.08); }
 .empty { color: var(--muted); font-size: 14px; padding: 28px 0; text-align: center; }
 .err { color: var(--red); font-size: 13px; margin-top: 10px; }
 

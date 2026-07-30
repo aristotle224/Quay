@@ -234,14 +234,16 @@ export default function CheckoutClient({ initial }: { initial: LinkWithRequest }
         Open in wallet
       </a>
 
-      <div className="memo-note">
-        <div className="k">Memo — must be included</div>
-        <div className="v">{request.memo}</div>
-        <p className="muted" style={{ fontSize: 12, margin: "8px 0 0" }}>
-          Your wallet must send this memo so the payment can be matched. The link above sets it for
-          you.
-        </p>
-      </div>
+      {request.memo && (
+        <div className="memo-note">
+          <div className="k">Memo — must be included</div>
+          <div className="v">{request.memo}</div>
+          <p className="muted" style={{ fontSize: 12, margin: "8px 0 0" }}>
+            Your wallet must send this memo so the payment can be matched. The link above sets it for
+            you.
+          </p>
+        </div>
+      )}
 
       <div className="status-rail">
         <span className="spinner" aria-hidden />

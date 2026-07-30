@@ -14,6 +14,7 @@ function link(over: Partial<PaymentLink> = {}): PaymentLink {
     reference: "ref_1",
     sellerId: "s_1",
     destination: DEST,
+    muxedId: null,
     title: "Test",
     amount: "10",
     asset: { code: "USDC", issuer: ISSUER },
@@ -42,12 +43,14 @@ function payment(over: Partial<NormalizedPayment> = {}): NormalizedPayment {
     asset: { code: "USDC", issuer: ISSUER },
     memo: "ref_1",
     memoType: "text",
+    toMuxedId: null,
     createdAt: "2026-01-01T00:00:00Z",
     ...over,
   };
 }
 
 const byRef = (l: PaymentLink) => (ref: string) => (ref === l.reference ? l : undefined);
+const byMuxedId = (l: PaymentLink) => (id: string) => (l.muxedId && id === l.muxedId ? l : undefined);
 
 // ── Example-based tests ───────────────────────────────────────────────────────
 
@@ -94,6 +97,66 @@ describe("matchPayment", () => {
     const l = link();
     const r = matchPayment(payment({ to: "GSOMEONEELSE" }), byRef(l));
     expect(r.kind).toBe("unknown_reference");
+  });
+
+  describe("muxed correlation (SEP-23)", () => {
+    it("matches by muxed id with no memo at all", () => {
+      const l = link({ muxedId: "123456789" });
+      const r = matchPayment(
+        payment({ memo: null, memoType: "none", toMuxedId: "123456789" }),
+        byRef(l),
+        byMuxedId(l),
+      );
+      expect(r.kind).toBe("paid");
+    });
+
+    it("still enforces destination/asset/amount rules on the muxed path", () => {
+      const l = link({ muxedId: "123456789" });
+      const underpaid = matchPayment(
+        payment({ memo: null, memoType: "none", toMuxedId: "123456789", amount: "1" }),
+        byRef(l),
+        byMuxedId(l),
+      );
+      expect(underpaid.kind).toBe("underpaid");
+
+      const wrongDest = matchPayment(
+        payment({ memo: null, memoType: "none", toMuxedId: "123456789", to: "GSOMEONEELSE" }),
+        byRef(l),
+        byMuxedId(l),
+      );
+      expect(wrongDest.kind).toBe("unknown_reference");
+    });
+
+    it("falls back to unknown_reference for a muxed id no link owns, even with no memo", () => {
+      const l = link({ muxedId: "123456789" });
+      const r = matchPayment(
+        payment({ memo: null, memoType: "none", toMuxedId: "999999999" }),
+        byRef(l),
+        byMuxedId(l),
+      );
+      expect(r.kind).toBe("no_memo");
+    });
+
+    it("prefers muxed id over memo when a payment somehow carries both", () => {
+      const muxedLink = link({ id: "lnk_muxed", reference: "ref_other", muxedId: "123456789" });
+      const memoLink = link({ id: "lnk_memo", reference: "ref_1" });
+      const finders = (candidates: PaymentLink[]) => ({
+        byRef: (ref: string) => candidates.find((c) => c.reference === ref),
+        byMuxed: (id: string) => candidates.find((c) => c.muxedId === id),
+      });
+      const f = finders([muxedLink, memoLink]);
+      const r = matchPayment(payment({ toMuxedId: "123456789" }), f.byRef, f.byMuxed);
+      expect(r.kind).toBe("paid");
+      if (r.kind === "paid") expect(r.link.id).toBe("lnk_muxed");
+    });
+
+    it("is unaffected by an unused findLinkByMuxedId when the payment carries no muxed id", () => {
+      const l = link();
+      const r = matchPayment(payment(), byRef(l), () => {
+        throw new Error("should not be called");
+      });
+      expect(r.kind).toBe("paid");
+    });
   });
 });
 
@@ -150,6 +213,7 @@ function exactPaymentFor(
     asset: l.asset,
     memo: l.reference,
     memoType: "text",
+    toMuxedId: null,
     createdAt: "2026-01-01T00:00:00Z",
   };
 }
@@ -171,6 +235,7 @@ describe("property: exact payment is always paid", () => {
             reference: ref,
             sellerId,
             destination: dest,
+            muxedId: null,
             title: "Property test",
             amount,
             asset: { code: "USDC", issuer: ISSUER },
@@ -216,6 +281,7 @@ describe("property: destination mismatch is never paid", () => {
             reference: ref,
             sellerId,
             destination: linkDest,
+            muxedId: null,
             title: "Property test",
             amount,
             asset: { code: "USDC", issuer: ISSUER },
@@ -240,6 +306,7 @@ describe("property: destination mismatch is never paid", () => {
             asset: { code: "USDC", issuer: ISSUER },
             memo: ref,
             memoType: "text",
+            toMuxedId: null,
             createdAt: "2026-01-01T00:00:00Z",
           };
 
@@ -273,6 +340,7 @@ describe("property: memo whitespace is not trimmed", () => {
             reference: ref,
             sellerId: "s_prop",
             destination: dest,
+            muxedId: null,
             title: "Property test",
             amount,
             asset: { code: "USDC", issuer: ISSUER },
@@ -305,6 +373,7 @@ describe("property: memo whitespace is not trimmed", () => {
             asset: { code: "USDC", issuer: ISSUER },
             memo: paddedMemo,
             memoType: "text",
+            toMuxedId: null,
             createdAt: "2026-01-01T00:00:00Z",
           };
 
