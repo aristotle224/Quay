@@ -1,4 +1,5 @@
 import Dashboard from "./components/Dashboard";
+import WebhooksPanel from "./components/WebhooksPanel";
 
 export default function Page() {
   return (
@@ -11,6 +12,7 @@ export default function Page() {
         </span>
       </header>
       <Dashboard />
+      <WebhooksPanel />
     </main>
   );
 }

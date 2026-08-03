@@ -31,6 +31,34 @@ export interface RailPort {
 
   /** Validate that a string is a usable destination address for this rail. */
   isValidDestination(address: string): boolean;
+
+  /**
+   * Throws `CannotReceiveError` if `account` cannot currently receive `asset` —
+   * the account doesn't exist yet, or (for issued assets) has no trustline, an
+   * unauthorized one, or one already at its limit. Resolves silently if it can.
+   * Implementations should cache a short TTL per (account, asset) so calling
+   * this on every link creation stays cheap.
+   */
+  assertCanReceive(account: string, asset: AssetRef): Promise<void>;
+}
+
+export type CannotReceiveReason =
+  | "account_not_found" // not yet created/funded on-chain
+  | "no_trustline" // issued asset, no trustline established
+  | "trustline_not_authorized" // trustline exists but the issuer froze/deauthorized it
+  | "trustline_limit_exceeded"; // trustline exists but is already full
+
+/** Raised by `RailPort.assertCanReceive`. `trustlineUri` (when present) is a
+ *  rail-specific "fix it" deep link — e.g. a SEP-7 `tx` URI wrapping an unsigned
+ *  changeTrust operation the seller's wallet can sign directly. */
+export class CannotReceiveError extends Error {
+  constructor(
+    readonly reason: CannotReceiveReason,
+    message: string,
+    readonly trustlineUri?: string,
+  ) {
+    super(message);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -74,6 +102,23 @@ export interface OffRampQuote {
   expiresAt: number; // epoch ms — after this the quote is void
 }
 
+/** Thrown when a quote's expiresAt has passed or is unparsable (NaN). */
+export class QuoteExpiredError extends Error {
+  constructor(readonly quoteId: string) {
+    super(`Quote ${quoteId} has expired`);
+    this.name = "QuoteExpiredError";
+  }
+}
+
+/**
+ * Returns true when a quote is expired or has an unparsable expiresAt (NaN).
+ * NaN comparisons always return false in JS, so we must guard explicitly.
+ */
+export function isQuoteExpired(quote: OffRampQuote, now: number = Date.now()): boolean {
+  if (Number.isNaN(quote.expiresAt)) return true;
+  return now >= quote.expiresAt;
+}
+
 /** Where the seller wants their local-currency payout to land. */
 export interface SellerPayoutRef {
   currency: string; // "NGN"
@@ -107,6 +152,26 @@ export interface OffRampPort {
   /** Throws {@link OffRampJobNotFoundError} when `jobId` has no known state — a
    *  crash/redeploy wiped an in-memory-only implementation, or the id is bogus. */
   status(jobId: string): Promise<OffRampJob>;
+  /**
+   * Indicative prices for all available buy currencies — SEP-38 GET /prices.
+   * Unauthenticated, no quote consumed. Used by the dashboard to show rates
+   * before the seller commits to a firm quote (issue 3.5).
+   * Optional: adapters that cannot provide indicative pricing may omit this.
+   */
+  indicativePrices?(input: {
+    sourceAsset: AssetRef;
+    sourceAmount: string;
+  }): Promise<IndicativePrice[]>;
+}
+
+/** One indicative price entry from SEP-38 GET /prices (issue 3.5). */
+export interface IndicativePrice {
+  /** ISO-4217 buy currency, e.g. "NGN". */
+  targetCurrency: string;
+  /** Indicative exchange rate: 1 sourceAsset unit = `price` targetCurrency units. */
+  price: string;
+  /** Delivery methods advertised by the anchor, e.g. ["WIRE"]. */
+  deliveryMethods: string[];
 }
 
 /** Typed miss for {@link OffRampPort.status}, so callers (the cash-out poller)
@@ -265,29 +330,71 @@ export interface Seller {
 export interface SellerRepository {
   getDefault(): Promise<Seller>;
   findById(id: string): Promise<Seller | null>;
+  findByWallet(wallet: string): Promise<Seller | null>;
+  /** Wallet-native signup: SEP-10 proved control of `wallet`, so it IS the identity.
+   *  Idempotent — returns the existing seller if one is already registered for it. */
+  createIfAbsent(wallet: string): Promise<Seller>;
 }
 
+/**
+ * A registered webhook endpoint.
+ *
+ * The signing secret is never stored in plaintext — only `secretEncrypted`
+ * (reversible, AES-256-GCM; the platform must be able to decrypt it to sign
+ * outgoing deliveries) plus `secretLast4` for display. API routes must never
+ * serialize `secretEncrypted` / `previousSecretEncrypted` in a response; the
+ * raw secret is only ever returned once, directly from `create`/`rotateSecret`,
+ * before it's encrypted for storage.
+ */
 export interface Webhook {
   id: string;
   sellerId: string;
   url: string;
-  secret: string;
+  secretEncrypted: string;
+  secretLast4: string;
+  /** Set during the 24h post-rotation overlap window; null otherwise. */
+  previousSecretEncrypted: string | null;
+  previousSecretLast4: string | null;
+  previousSecretExpiresAt: number | null;
+  deletedAt: number | null;
   createdAt: number;
 }
 
+/** Fields safe to return from any API route — never includes secret material. */
+export type PublicWebhook = Omit<Webhook, "secretEncrypted" | "previousSecretEncrypted">;
+
 export interface WebhookDelivery {
+  id: string;
   webhookId: string;
   linkId: string;
   event: string;
   statusCode: number | null;
   ok: boolean;
   error: string | null;
+  createdAt: number;
 }
 
 export interface WebhookRepository {
   create(input: { sellerId: string; url: string; secret: string }): Promise<Webhook>;
+  /** Active (non-deleted) webhooks for a seller. Used for both dispatch and listing. */
   listBySeller(sellerId: string): Promise<Webhook[]>;
-  recordDelivery(d: WebhookDelivery): Promise<void>;
+  /** Scoped to the owning seller to prevent cross-tenant access (IDOR). */
+  getById(id: string, sellerId: string, opts?: { includeDeleted?: boolean }): Promise<Webhook | null>;
+  /**
+   * Rotates the signing secret. The previous secret remains valid for
+   * `overlapMs` so in-flight receivers can be redeployed without dropping
+   * events (see WebhookSender, which signs with both during the overlap).
+   */
+  rotateSecret(id: string, sellerId: string, newSecret: string, overlapMs: number): Promise<Webhook | null>;
+  /** Soft delete — keeps delivery history browsable after removal. */
+  softDelete(id: string, sellerId: string): Promise<boolean>;
+  recordDelivery(d: Omit<WebhookDelivery, "id" | "createdAt">): Promise<void>;
+  listDeliveries(
+    webhookId: string,
+    sellerId: string,
+    opts: { limit: number; cursor?: string | null },
+  ): Promise<{ deliveries: WebhookDelivery[]; nextCursor: string | null }>;
+  listDeliveriesByLinkId(linkId: string): Promise<WebhookDelivery[]>;
 }
 
 /** Watcher bookkeeping: per-account cursor + processed-tx ledger for idempotency. */
@@ -296,4 +403,17 @@ export interface WatcherStateRepository {
   setCursor(account: string, cursor: string): Promise<void>;
   isProcessed(txHash: string): Promise<boolean>;
   markProcessed(txHash: string, linkId: string | null): Promise<void>;
+}
+
+/** Session-JWT revocation, keyed by the token's own `jti` — logout and
+ *  compromise both work by revoking a specific token id, not by invalidating
+ *  every session for a seller. */
+export interface TokenRevocationRepository {
+  /** `expiresAt` (epoch seconds) mirrors the token's own `exp`, so expired
+   *  revocation rows can be swept without ever affecting still-valid tokens. */
+  revoke(jti: string, expiresAt: number): Promise<void>;
+  isRevoked(jti: string): Promise<boolean>;
+  /** Deletes revocation rows whose token would already fail verification on
+   *  expiry alone — safe to call opportunistically, no correctness impact. */
+  sweepExpired(now: number): Promise<void>;
 }

@@ -1,0 +1,46 @@
+name: db-backup
+
+on:
+  schedule:
+    # Nightly at 03:17 UTC (off the hour, to avoid the herd of jobs at :00).
+    - cron: "17 3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Self-skips (rather than failing every night) until the production
+      # secrets below are actually provisioned - see docs/RUNBOOK.md.
+      - name: Check backup secrets are configured
+        id: check
+        run: |
+          if [ -n "${{ secrets.PROD_DATABASE_URL }}" ] && [ -n "${{ secrets.BACKUP_ENCRYPTION_KEY }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::db-backup skipped - PROD_DATABASE_URL and/or BACKUP_ENCRYPTION_KEY secrets are not set yet."
+          fi
+
+      - name: Run backup
+        if: steps.check.outputs.configured == 'true'
+        run: pnpm db:backup
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          DATABASE_AUTH_TOKEN: ${{ secrets.PROD_DATABASE_AUTH_TOKEN }}
+          BACKUP_ENCRYPTION_KEY: ${{ secrets.BACKUP_ENCRYPTION_KEY }}
+          BACKUP_UPLOAD_URL: ${{ secrets.BACKUP_UPLOAD_URL }}
+          BACKUP_UPLOAD_AUTH_HEADER: ${{ secrets.BACKUP_UPLOAD_AUTH_HEADER }}

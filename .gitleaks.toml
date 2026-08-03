@@ -1,0 +1,34 @@
+title = "Quay gitleaks config"
+
+# Keep gitleaks' full built-in rule set (AWS keys, generic API keys, private
+# key blocks, etc.) and add project-specific rules on top - see issue 8.5.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "stellar-secret-seed"
+description = "Stellar secret seed (StrKey-encoded ed25519 seed) - a private key. Never commit one, including a testnet-only key: even a throwaway secret in git history trains bad habits and can be reused by mistake."
+# StrKey secret seed: "S" + 55 base32 (RFC4648, A-Z2-7) characters = 56 chars total.
+regex = '''\bS[A-Z2-7]{55}\b'''
+
+[allowlist]
+description = "Known-safe, non-secret example values"
+regexes = [
+  # Public G... addresses (Stellar account IDs) are not secrets - they're
+  # meant to be shared (this is what a wallet address *is*). Excluded so a
+  # future broader rule/keyword match doesn't false-positive on them.
+  '''\bG[A-Z2-7]{55}\b''',
+]
+paths = [
+  # Test fixtures may construct throwaway Keypair.random() secrets in-memory
+  # at runtime - never written to a fixture file - but excluding common
+  # fixture directories keeps false positives from ever becoming a reason to
+  # skip reviewing a real finding elsewhere.
+  '''.*/test/fixtures/.*''',
+  # apps/api/test/webhook-repository.test.ts asserts on secretLast4 and
+  # round-trips decryptSecret, so it needs literal fixture secrets with known
+  # values. generic-api-key matches them. Scoped to this one file rather than
+  # all *.test.ts: a blanket test exclusion would let a real key committed in a
+  # test slip past the scanner, which is the failure issue 8.5 exists to stop.
+  '''apps/api/test/webhook-repository\.test\.ts''',
+]

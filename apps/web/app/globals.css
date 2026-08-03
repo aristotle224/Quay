@@ -83,6 +83,9 @@ a { color: inherit; }
 .pill--underpaid, .pill--offramp_pending { color: var(--amber); }
 .pill--offramp_settled { color: var(--accent); }
 .pill--offramp_failed, .pill--expired, .pill--cancelled { color: var(--red); }
+.pill--ok { color: var(--accent); }
+.pill--fail { color: var(--red); }
+.pill--none { color: var(--muted); }
 
 .muted { color: var(--muted); }
 .linkbtn { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 12px; padding: 0; font-family: var(--sans); }
@@ -96,6 +99,9 @@ a { color: inherit; }
 .empty { color: var(--muted); font-size: 14px; padding: 28px 0; text-align: center; }
 .err { color: var(--red); font-size: 13px; margin-top: 10px; }
 
+.banner { border-radius: var(--radius); padding: 14px 16px; font-size: 13px; margin-bottom: 20px; }
+.banner--warn { background: rgba(232, 184, 75, 0.1); border: 1px solid rgba(232, 184, 75, 0.35); color: var(--text); }
+.banner strong { color: var(--amber); }
 /* ---------- skeleton loader ---------- */
 .skeleton {
   display: inline-block;
@@ -176,6 +182,87 @@ a { color: inherit; }
   .table .hide-sm { display: none; }
 }
 
+/* ---------- timeline (link detail) ---------- */
+.tl-header { padding: 24px; }
+.tl-header-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.tl-title { font-size: 18px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
+.tl-ref { font-size: 12px; color: var(--muted); }
+.tl-header-right { text-align: right; }
+.tl-amount { font-size: 22px; font-weight: 600; margin-top: 6px; letter-spacing: -0.02em; }
+.tl-paid-row { margin-top: 12px; font-size: 13px; }
+
+.tl-timeline { margin: 8px 0; }
+.tl-event { display: flex; gap: 14px; min-height: 52px; }
+.tl-event-line { display: flex; flex-direction: column; align-items: center; width: 18px; flex-shrink: 0; }
+.tl-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); background: var(--surface); flex-shrink: 0; transition: border-color 0.2s, background 0.2s; }
+.tl-dot.dot--created { border-color: var(--muted); background: var(--surface-2); }
+.tl-dot.dot--paid { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 3px rgba(63, 217, 164, 0.15); }
+.tl-dot.dot--underpaid { border-color: var(--amber); background: var(--amber); box-shadow: 0 0 0 3px rgba(232, 184, 75, 0.15); }
+.tl-dot.dot--webhook { border-color: var(--muted); background: transparent; width: 10px; height: 10px; margin: 2px 0 0 2px; border-style: dashed; }
+.tl-dot.dot--settled { border-color: var(--accent); background: var(--accent); }
+.tl-dot.dot--failed { border-color: var(--red); background: var(--red); }
+.tl-dot.dot--pending { border-color: var(--amber); background: transparent; animation: pulse 1.5s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+.tl-line { width: 2px; flex: 1; min-height: 20px; background: var(--border); margin: 4px 0; }
+.tl-event-body { flex: 1; padding-bottom: 16px; }
+.tl-event-header { display: flex; align-items: center; gap: 8px; }
+.tl-event-label { font-size: 14px; font-weight: 500; }
+.tl-event-time { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.tl-event-detail { margin-top: 4px; font-size: 13px; }
+.tl-ok { font-size: 11px; color: var(--accent); }
+.tl-fail { font-size: 11px; color: var(--red); }
+
+.explorer-link { color: var(--accent); text-decoration: none; border-bottom: 1px dotted transparent; transition: border-color 0.15s; }
+.explorer-link:hover { border-bottom-color: var(--accent); }
+
+.tl-details { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 13px; }
+.tl-dt-row { display: contents; }
+.tl-dt-row dt { color: var(--muted); white-space: nowrap; padding: 4px 0; }
+.tl-dt-row dd { margin: 0; padding: 4px 0; word-break: break-all; }
+
+.tl-receipt-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tl-receipt-url { font-size: 13px; color: var(--muted); flex: 1; min-width: 0; word-break: break-all; }
+
+/* ---------- receipt page ---------- */
+.shell--receipt { max-width: 520px; padding-top: 48px; }
+.receipt-print-header { text-align: center; margin-bottom: 24px; }
+.receipt-print-header h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+
+.receipt { padding: 32px; }
+.receipt-merchant { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 500; }
+.receipt-icon { font-size: 20px; }
+.receipt-divider { height: 1px; background: var(--border); margin: 20px 0; }
+.receipt-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; gap: 16px; }
+.receipt-label { font-size: 13px; color: var(--muted); flex-shrink: 0; }
+.receipt-value { font-size: 14px; text-align: right; word-break: break-all; }
+.receipt-footer-meta { display: flex; justify-content: space-between; font-size: 12px; }
+.receipt-footer { text-align: center; margin-top: 32px; }
+.receipt-footer p { font-size: 12px; margin: 0; }
+
+.receipt-actions { display: flex; justify-content: center; gap: 12px; margin-top: 24px; }
+
+@media print {
+  html, body { background: #fff !important; color: #000 !important; }
+  .receipt-actions { display: none !important; }
+  .receipt { border: 1px solid #ddd !important; box-shadow: none !important; }
+  .receipt-footer { display: none !important; }
+  .receipt-print-header { display: block !important; }
+  .explorer-link { color: #000 !important; text-decoration: underline !important; }
+  .muted { color: #666 !important; }
+  .pill { border: 1px solid #ccc !important; }
+  .pill--paid { color: #0a5 !important; }
+  .shell--receipt { padding-top: 24px !important; }
+}
+
+/* ---------- csv export ---------- */
+.csv-export-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.csv-field { flex: 1; min-width: 160px; margin-bottom: 0; }
+.csv-field input { font-family: var(--sans); }
+
+.dash-link-title { color: var(--accent); text-decoration: none; font-weight: 500; }
+.dash-link-title:hover { text-decoration: underline; }
+
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation: none; }
+  .tl-dot.dot--pending { animation: none; }
 }

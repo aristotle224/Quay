@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # Single root-level entry covers the whole pnpm workspace (apps/*, packages/*) -
+  # Dependabot resolves the workspace from the root manifest + lockfile.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      npm-dependencies:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns:
+          - "*"

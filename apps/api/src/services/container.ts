@@ -1,5 +1,12 @@
+import { randomBytes } from "node:crypto";
 import { Keypair, StrKey } from "@stellar/stellar-sdk";
-import { resolveStellarConfig, StellarRail, HorizonWatcher, StreamingHorizonWatcher } from "@checkout/stellar";
+import {
+  resolveStellarConfig,
+  StellarRail,
+  HorizonWatcher,
+  StreamingHorizonWatcher,
+  type HorizonStatus,
+} from "@checkout/stellar";
 import { MockAnchorOffRamp, NoKycRequired, TestAnchorKyc, TestAnchorOffRamp } from "@checkout/offramp";
 import type { KycPort, OffRampPort, OffRampStateRepository } from "@checkout/core";
 import { env } from "../env";
@@ -10,6 +17,7 @@ import {
   DrizzleSellerRepository,
   DrizzleWebhookRepository,
   DrizzleWatcherStateRepository,
+  DrizzleTokenRevocationRepository,
   DrizzleOffRampStateRepository,
   DrizzleKycRepository,
 } from "../repos/index";
@@ -21,14 +29,34 @@ import {
   type AccountCircuitBreakerStatus,
   type WatcherMetrics,
 } from "../worker/watcher-loop";
+import { ChallengeService } from "./challenge";
+import { horizonSignerFetcher } from "./horizon-signers";
+import { SessionIssuer } from "./session";
+import type { StellarTomlConfig } from "../routes/well-known";
+import { CircuitBreakerOffRamp } from "./circuit-breaker";
 
 export interface Container {
   service: LinkService;
   links: DrizzleLinkRepository;
   sellers: DrizzleSellerRepository;
   webhooks: DrizzleWebhookRepository;
+  db: DB;
   kyc: KycPort;
   config: { network: string; horizonUrl: string; sellerWallet: string };
+  horizonStatus(): HorizonStatus;
+  /** Optional SSRF guard override for webhook URLs. Tests inject a permissive
+   *  one so route tests do not depend on live DNS. */
+  webhookGuard?: (url: string) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  metricsToken: string;
+  watcherLagSeconds(): number;
+  circuitBreakerState(): number;
+  auth: {
+    challenge: ChallengeService;
+    session: SessionIssuer;
+    stellarToml: StellarTomlConfig;
+    revocations: DrizzleTokenRevocationRepository;
+    secureCookie: boolean;
+  };
   start(): void;
   stop(): void;
   getWatcherCircuitBreakerStatus(): AccountCircuitBreakerStatus[];
@@ -49,6 +77,7 @@ export async function createContainer(): Promise<Container> {
   const sellersRepo = new DrizzleSellerRepository(db);
   const webhooksRepo = new DrizzleWebhookRepository(db);
   const stateRepo = new DrizzleWatcherStateRepository(db);
+  const revocationsRepo = new DrizzleTokenRevocationRepository(db);
   const offrampStateRepo = new DrizzleOffRampStateRepository(db);
 
   const seller = resolveSellerKeypairOrWallet();
@@ -56,11 +85,19 @@ export async function createContainer(): Promise<Container> {
   await sellersRepo.ensureDefault(sellerWallet, env.defaultSellerName);
 
   const rail = new StellarRail(stellar);
+  // Polling watcher gets the retry / fallback / degraded-tracking wrapper
+  // (issue #10). The streaming path has its own reconnect handling.
+  const pollingWatcher = new HorizonWatcher({
+    primaryServer: stellar.horizonUrl,
+    fallbackServer: env.horizonUrlFallback,
+    degradedThreshold: env.horizonDegradedThreshold,
+    log: (m) => console.log(`[horizon] ${m}`),
+  });
   const watcher =
     env.watchMode === "stream"
       ? new StreamingHorizonWatcher(stellar.horizonUrl, { log: (m) => console.log(`[watcher:stream] ${m}`) })
-      : new HorizonWatcher(stellar.horizonUrl);
-  const offramp = createOffRamp(seller.keypair, offrampStateRepo);
+      : pollingWatcher;
+  const offramp = new CircuitBreakerOffRamp(createOffRamp(seller.keypair, offrampStateRepo));
   const kyc = createKyc(seller.keypair, db);
 
   // Anchor health probe + circuit breaker (issue #19, 3.7). In mock mode the
@@ -96,10 +133,30 @@ export async function createContainer(): Promise<Container> {
     state: stateRepo,
     service,
     pollMs: env.pollMs,
+    pageLimit: env.watchPageLimit,
+    maxPagesPerTick: env.watchMaxPagesPerTick,
     log: (m) => console.log(`[watcher] ${m}`),
   });
 
+  const metricsToken = resolveMetricsToken();
+  const serverKeypair = resolveServerSigningKeypair();
+  const challenge = new ChallengeService({
+    serverKeypair,
+    homeDomain: env.homeDomain,
+    webAuthDomain: env.webAuthDomain,
+    networkPassphrase: stellar.networkPassphrase,
+    fetchAccountSigners: horizonSignerFetcher(stellar.horizonUrl),
+  });
+  const session = new SessionIssuer(resolveJwtSecret());
+  const stellarToml: StellarTomlConfig = {
+    signingKey: serverKeypair.publicKey(),
+    webAuthEndpoint: `https://${env.webAuthDomain}/auth`,
+    networkPassphrase: stellar.networkPassphrase,
+    orgName: env.defaultSellerName,
+  };
+
   let stopPoller: (() => void) | null = null;
+  let stopRevocationSweep: (() => void) | null = null;
   let stopProbe: (() => void) | null = null;
 
   return {
@@ -107,16 +164,28 @@ export async function createContainer(): Promise<Container> {
     links: linksRepo,
     sellers: sellersRepo,
     webhooks: webhooksRepo,
+    db,
     kyc,
     config: { network: stellar.network, horizonUrl: stellar.horizonUrl, sellerWallet },
+    horizonStatus: () => pollingWatcher.getStatus(),
+    metricsToken,
+    watcherLagSeconds: () => loop.getLagSeconds(),
+    circuitBreakerState: () => offramp.getStateNumeric(),
+    auth: { challenge, session, stellarToml, revocations: revocationsRepo, secureCookie: env.cookieSecure },
     start() {
       loop.start();
       stopPoller = startCashOutPoller(service, Math.max(3000, env.pollMs));
       stopProbe = startAnchorProbeTimer(anchorHealth, 60_000);
+      const sweepTimer = setInterval(
+        () => void revocationsRepo.sweepExpired(Math.floor(Date.now() / 1000)),
+        60 * 60 * 1000, // hourly — revocation rows are cheap and self-limiting (max 24h lifetime) anyway
+      );
+      stopRevocationSweep = () => clearInterval(sweepTimer);
     },
     async stop() {
       await loop.stop();
       stopPoller?.();
+      stopRevocationSweep?.();
       if (watcher instanceof StreamingHorizonWatcher) watcher.stop();
       stopProbe?.();
       stopPoller = null;
@@ -226,4 +295,52 @@ function createKyc(sellerKeypair: Keypair | null, db: DB): KycPort {
   // env.kycEncryptionKey is guaranteed set when OFFRAMP=testanchor (see env.ts).
   const repo = new DrizzleKycRepository(db, parsePiiKey(env.kycEncryptionKey as string));
   return new TestAnchorKyc({ sellerKeypair, repo });
+}
+
+/**
+ * Resolves the keypair that SIGNS SEP-10 challenges — the platform's own login
+ * identity, distinct from any seller's wallet. Required to be stable
+ * (SERVER_SIGNING_SECRET) on public network; auto-generates a throwaway testnet
+ * keypair otherwise, same convenience as `resolveSellerKeypairOrWallet`.
+ */
+function resolveServerSigningKeypair(): Keypair {
+  if (env.serverSigningSecret) return Keypair.fromSecret(env.serverSigningSecret);
+  if (env.network === "public") {
+    throw new Error("Set SERVER_SIGNING_SECRET before running on public network (SEP-10 needs a stable signing key)");
+  }
+  const kp = Keypair.random();
+  console.log(
+    [
+      "",
+      "──────────────────────────────────────────────────────────────────",
+      " No SERVER_SIGNING_SECRET set — generated a TESTNET SEP-10 signing keypair.",
+      ` Signing key (in stellar.toml): ${kp.publicKey()}`,
+      " Set SERVER_SIGNING_SECRET in .env to keep this stable across restarts —",
+      " every restart otherwise invalidates in-flight sessions and stellar.toml.",
+      "──────────────────────────────────────────────────────────────────",
+      "",
+    ].join("\n"),
+  );
+  return kp;
+}
+
+/** Resolves the JWT session secret. Required on public network; auto-generates
+ *  an ephemeral one on testnet (sessions won't survive a restart). */
+function resolveJwtSecret(): string {
+  if (env.jwtSecret) return env.jwtSecret;
+  if (env.network === "public") {
+    throw new Error("Set JWT_SECRET before running on public network (needed to mint stable sessions)");
+  }
+  console.log(" No JWT_SECRET set — generated an ephemeral testnet session secret (won't survive a restart).");
+  return randomBytes(32).toString("hex");
+}
+
+/** Resolves the bearer token that gates `GET /metrics`. Auto-generates an
+ *  ephemeral one (printed once at boot) if METRICS_TOKEN isn't set — the
+ *  endpoint is always gated, never open by default. */
+function resolveMetricsToken(): string {
+  if (env.metricsToken) return env.metricsToken;
+  const token = randomBytes(24).toString("hex");
+  console.log(` No METRICS_TOKEN set — generated an ephemeral one for /metrics: ${token}`);
+  return token;
 }

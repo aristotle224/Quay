@@ -5,8 +5,13 @@ import { env } from "./env";
 import { createContainer } from "./services/container";
 import { linkRoutes } from "./routes/links";
 import { webhookRoutes } from "./routes/webhooks";
+import { publicRoutes } from "./routes/public";
+import { metricsRoutes } from "./routes/metrics";
+import { authRoutes } from "./routes/auth";
+import { wellKnownRoutes } from "./routes/well-known";
 import { kycRoutes } from "./routes/kyc";
-import { rateLimit } from "./middleware/rate-limit";
+import { rateLimit, MemoryStore } from "./middleware/rate-limit";
+import { RedisStore } from "./middleware/redis-store";
 
 const SHUTDOWN_TIMEOUT_MS = env.shutdownTimeoutMs;
 
@@ -14,20 +19,50 @@ async function main(): Promise<void> {
   const container = await createContainer();
 
   const app = new Hono();
-  app.use("*", cors({ origin: env.corsOrigins, allowMethods: ["GET", "POST", "PUT", "OPTIONS"] }));
-  app.use("*", rateLimit({ windowMs: env.rateLimitWindowMs, max: env.rateLimitMax }));
+  const rateLimitStore = env.redisUrl ? new RedisStore(env.redisUrl) : new MemoryStore();
+  app.use(
+    "*",
+    cors({
+      origin: env.corsOrigins,
+      allowMethods: ["GET", "POST", "PUT", "OPTIONS"],
+      // The session cookie is sent cross-origin (API and web app are separate
+      // hosts) — credentials: true plus an explicit (non-"*") origin list is
+      // required for the browser to actually attach/accept it.
+      credentials: true,
+    }),
+  );
+  app.use(
+    "*",
+    rateLimit({
+      windowMs: env.rateLimitWindowMs,
+      max: env.rateLimitMax,
+      store: rateLimitStore,
+      trustProxyHops: env.trustProxyHops,
+    }),
+  );
+  const strictRateLimit = rateLimit({
+    windowMs: env.rateLimitStrictWindowMs,
+    max: env.rateLimitStrictMax,
+    store: rateLimitStore,
+    trustProxyHops: env.trustProxyHops,
+  });
 
-  app.get("/health", (ctx) =>
-    ctx.json({
+  app.get("/health", async (ctx) => {
+    const usdcTrustline = await container.service
+      .checkSellerUsdcTrustline()
+      .catch(() => ({ ok: false as const, reason: "check_failed", message: "trustline preflight check failed" }));
+    return ctx.json({
       ok: true,
       network: container.config.network,
       sellerWallet: container.config.sellerWallet,
+      usdcTrustline,
+      horizon: container.horizonStatus(),
       // Anchor health probe + circuit breaker (issue #19, 3.7) so an operator
       // can tell "the anchor is down" apart from "the API is down" without
       // tailing logs.
       anchor: container.service.healthSnapshot(),
-    }),
-  );
+    });
+  });
 
   app.get("/ready", (ctx) => {
     const circuitBreakers = container.getWatcherCircuitBreakerStatus();
@@ -47,8 +82,24 @@ async function main(): Promise<void> {
     });
   });
 
-  app.route("/links", linkRoutes(container));
+  app.route("/links", linkRoutes(container, strictRateLimit));
   app.route("/webhooks", webhookRoutes(container));
+  app.route("/r", publicRoutes(container));
+
+  // CORS for public receipt endpoint (accessible from any origin).
+  app.use("/r/*", cors({ origin: "*", allowMethods: ["GET", "OPTIONS"] }));
+  app.route("/metrics", metricsRoutes(container));
+  app.route(
+    "/auth",
+    authRoutes({
+      challenge: container.auth.challenge,
+      session: container.auth.session,
+      sellers: container.sellers,
+      revocations: container.auth.revocations,
+      secureCookie: container.auth.secureCookie,
+    }),
+  );
+  app.route("/.well-known", wellKnownRoutes(container.auth.stellarToml));
   app.route("/seller/kyc", kycRoutes(container));
 
   container.start();

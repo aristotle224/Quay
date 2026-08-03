@@ -40,6 +40,23 @@ export interface PaymentLink {
   offrampJobId: string | null;
   offrampTargetCurrency: string | null;
   offrampStatus: string | null;
+  /**
+   * Indicative rate shown to the seller before they committed (issue 3.5).
+   * Stored at the moment the seller opens the cash-out form (GET offramp-preview).
+   * The delta with `offrampRate` is the anchor's real spread.
+   */
+  offrampIndicativeRate: string | null;
+  /**
+   * The firm rate from the SEP-38 POST /quote used to initiate this cash-out.
+   * Stored by triggerCashOut() (issue 3.5).
+   */
+  offrampRate: string | null;
+  /**
+   * Absolute difference between the indicative and firm rates (firm − indicative),
+   * as a decimal string. Persisted so the spread is queryable without recomputing
+   * (issue 3.5 / 3.8 telemetry).
+   */
+  offrampRateDelta: string | null;
   expiresAt: number | null; // epoch ms
   /** True for rows created by the demo seed script. Displayed as a badge in the UI. */
   isDemo: boolean;

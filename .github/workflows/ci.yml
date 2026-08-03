@@ -28,6 +28,8 @@ jobs:
       - name: Test
         run: pnpm test
 
+      - name: Test scripts (db-backup/db-restore)
+        run: pnpm test:scripts
       - name: Docs — status diagram hasn't drifted from status.ts
         run: pnpm docs:check-status-diagram
 
@@ -40,3 +42,25 @@ jobs:
           NEXT_PUBLIC_API_URL: http://localhost:8787
           API_URL: http://localhost:8787
           NEXT_TELEMETRY_DISABLED: "1"
+
+      - name: Dependency audit (fails on unallowlisted HIGH/CRITICAL)
+        run: |
+          set +e
+          pnpm audit --audit-level=high --json > audit.json
+          set -e
+          python3 .github/scripts/check-audit-allowlist.py audit.json .github/audit-allowlist.txt
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks scans full history, not just the current commit
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_CONFIG: .gitleaks.toml
+          # Required since gitleaks-action v2 for pull_request scans; without it
+          # the step errors before scanning anything.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

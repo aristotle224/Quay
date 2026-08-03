@@ -1,0 +1,24 @@
+#!/bin/sh
+# Pre-commit secret scan (issue 8.5). Enable with:
+#   git config core.hooksPath .githooks
+#
+# Mirrors the CI gitleaks step (same .gitleaks.toml, including the
+# Stellar-secret-seed rule) but runs only against staged changes, so it's
+# fast enough to run on every commit.
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks is not installed - skipping the local secret scan." >&2
+  echo "pre-commit: install it (https://github.com/gitleaks/gitleaks#installing) to catch secrets before they're even committed." >&2
+  echo "pre-commit: CI will still catch a leaked secret on push either way." >&2
+  exit 0
+fi
+
+gitleaks protect --staged --redact --config .gitleaks.toml
+STATUS=$?
+
+if [ "$STATUS" -ne 0 ]; then
+  echo "pre-commit: gitleaks found a likely secret in staged changes - commit blocked." >&2
+  echo "pre-commit: if this is a genuine false positive, add an allowlist entry to .gitleaks.toml (with a comment explaining why) rather than bypassing this hook." >&2
+fi
+
+exit $STATUS

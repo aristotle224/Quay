@@ -11,6 +11,9 @@ export interface PaymentsCallBuilder {
   order(direction: "asc" | "desc"): PaymentsCallBuilder;
   limit(n: number): PaymentsCallBuilder;
   cursor(token: string): PaymentsCallBuilder;
+  /** `join=transactions` — embeds each operation's transaction in the same
+   *  response, so reading a memo costs no follow-up request (issue #11). */
+  join(resource: "transactions"): PaymentsCallBuilder;
   call(): Promise<{ records: HorizonPaymentRecord[] }>;
   stream(opts: {
     onmessage: (record: HorizonPaymentRecord) => void;

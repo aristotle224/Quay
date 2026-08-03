@@ -20,6 +20,7 @@ import {
 } from "@checkout/core";
 import type { StellarConfig } from "@checkout/stellar";
 import { AnchorHealth, LinkService } from "../src/services/link-service";
+import { encryptSecret } from "../src/services/secret-crypto";
 import { Hono } from "hono";
 
 const DEST = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
@@ -42,6 +43,9 @@ function link(over: Partial<PaymentLink> = {}): PaymentLink {
     offrampJobId: null,
     offrampTargetCurrency: null,
     offrampStatus: null,
+    offrampIndicativeRate: null,
+    offrampRate: null,
+    offrampRateDelta: null,
     expiresAt: null,
     createdAt: 1_700_000_000_000,
     updatedAt: 1_700_000_000_000,
@@ -250,6 +254,9 @@ class FakeLinkRepoForAnchor implements LinkRepository {
       offrampJobId: null,
       offrampTargetCurrency: null,
       offrampStatus: null,
+      offrampIndicativeRate: null,
+      offrampRate: null,
+      offrampRateDelta: null,
       expiresAt: input.expiresAt,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -289,24 +296,61 @@ class FakeSellerRepoForAnchor {
   async findById(id: string): Promise<Seller | null> {
     return id === this.s.id ? this.s : null;
   }
+  async findByWallet(wallet: string): Promise<Seller | null> {
+    return wallet === this.s.wallet ? this.s : null;
+  }
+  async createIfAbsent(_wallet: string): Promise<Seller> {
+    return this.s;
+  }
 }
 
 class FakeWebhookRepoForAnchor implements WebhookRepository {
   stored: Webhook[] = [];
   async create(input: { sellerId: string; url: string; secret: string }): Promise<Webhook> {
-    const w: Webhook = { id: "whk_x", sellerId: input.sellerId, url: input.url, secret: input.secret, createdAt: Date.now() };
+    const w: Webhook = {
+      id: "whk_x",
+      sellerId: input.sellerId,
+      url: input.url,
+      secretEncrypted: encryptSecret(input.secret),
+      secretLast4: input.secret.slice(-4),
+      previousSecretEncrypted: null,
+      previousSecretLast4: null,
+      previousSecretExpiresAt: null,
+      deletedAt: null,
+      createdAt: Date.now(),
+    };
     this.stored.push(w);
     return w;
   }
   async listBySeller(sellerId: string): Promise<Webhook[]> {
-    return this.stored.filter((h) => h.sellerId === sellerId);
+    return this.stored.filter((h) => h.sellerId === sellerId && h.deletedAt === null);
+  }
+  /** Not exercised by these anchor-health tests — just satisfies the interface. */
+  async getById(id: string, sellerId: string): Promise<Webhook | null> {
+    return this.stored.find((h) => h.id === id && h.sellerId === sellerId) ?? null;
+  }
+  /** Not exercised by these anchor-health tests — just satisfies the interface. */
+  async rotateSecret(): Promise<Webhook | null> {
+    return null;
+  }
+  /** Not exercised by these anchor-health tests — just satisfies the interface. */
+  async softDelete(): Promise<boolean> {
+    return false;
+  }
+  async listDeliveriesByLinkId(): Promise<WebhookDelivery[]> {
+    return [];
   }
   async recordDelivery(_d: WebhookDelivery): Promise<void> {
     /* capture elsewhere via fetch interception */
   }
+  /** Not exercised by these anchor-health tests — just satisfies the interface. */
+  async listDeliveries(): Promise<{ deliveries: WebhookDelivery[]; nextCursor: string | null }> {
+    return { deliveries: [], nextCursor: null };
+  }
 }
 
 class FakeRailForAnchor implements RailPort {
+  assertCanReceive = async (): Promise<void> => {};
   buildRequest = (input: Parameters<RailPort["buildRequest"]>[0]) => ({
     uri: `web+stellar:pay?destination=${input.destination}&memo=${input.reference}`,
     destination: input.destination,
@@ -429,6 +473,7 @@ function buildSvcWithHealth(health: AnchorHealth, offramp: OffRampPort): Svc {
     stellar: STELLAR,
     health,
     correlation: "memo",
+    webhookGuard: async () => ({ ok: true }) as const,
   });
   const captureRoute = new Hono();
   // Mirror the production cash-out route shape for HTTP-level assertions.
@@ -614,6 +659,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       stellar: STELLAR,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
+    webhookGuard: async () => ({ ok: true }) as const,
     });
 
     await repo.save(
@@ -662,6 +708,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       stellar: STELLAR,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
+    webhookGuard: async () => ({ ok: true }) as const,
     });
     await repo.save(
       link({
@@ -707,6 +754,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       stellar: STELLAR,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
+    webhookGuard: async () => ({ ok: true }) as const,
     });
     await repo.save(
       link({ id: "lnk_3", status: "offramp_pending", offrampJobId: "ofr_x", offrampTargetCurrency: "NGN" }),
@@ -744,6 +792,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       stellar: STELLAR,
       health: new AnchorHealth({ enabled: false, url: null, homeDomain: null }),
       correlation: "memo",
+    webhookGuard: async () => ({ ok: true }) as const,
     });
     await repo.save(
       link({ id: "lnk_bo", status: "offramp_pending", offrampJobId: "ofr_bo", offrampTargetCurrency: "NGN" }),

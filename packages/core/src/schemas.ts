@@ -25,6 +25,12 @@ export const registerWebhookSchema = z.object({
 });
 export type RegisterWebhookBody = z.infer<typeof registerWebhookSchema>;
 
+export const listWebhookDeliveriesQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  cursor: z.string().trim().min(1).optional(),
+});
+export type ListWebhookDeliveriesQuery = z.infer<typeof listWebhookDeliveriesQuerySchema>;
+
 export const cashOutSchema = z.object({
   targetCurrency: z.string().trim().length(3).toUpperCase().default("NGN"),
   // Opaque payout fields handed to the anchor adapter (e.g. bank, account number).

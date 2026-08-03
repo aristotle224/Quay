@@ -7,11 +7,12 @@ import {
   type OffRampMode,
   type OffRampPort,
   type OffRampQuote,
+  type IndicativePrice,
   type OffRampStateRepository,
   type SellerPayoutRef,
 } from "@checkout/core";
 import { Sep10Client } from "./sep10";
-import { getSep38Quote } from "./sep38";
+import { getSep38Prices, getSep38Quote } from "./sep38";
 import { getSep6Transaction, startSep6Withdraw } from "./sep6";
 
 // ===========================================================================
@@ -68,6 +69,25 @@ export class TestAnchorOffRamp implements OffRampPort {
       baseUrl: this.baseUrl,
       homeDomain: opts.homeDomain ?? DEFAULT_HOME_DOMAIN,
     });
+  }
+
+  /**
+   * Indicative prices via SEP-38 GET /prices — unauthenticated, no quote consumed.
+   * Safe to call on every dashboard load without burning a firm quote (issue 3.5).
+   */
+  async indicativePrices(input: {
+    sourceAsset: AssetRef;
+    sourceAmount: string;
+  }): Promise<IndicativePrice[]> {
+    const entries = await getSep38Prices(this.baseUrl, {
+      sellAsset: input.sourceAsset,
+      sellAmount: input.sourceAmount,
+    });
+    return entries.map((e) => ({
+      targetCurrency: e.buyCurrency,
+      price: e.price,
+      deliveryMethods: e.deliveryMethods,
+    }));
   }
 
   async quote(input: {

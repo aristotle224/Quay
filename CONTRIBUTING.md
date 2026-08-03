@@ -75,6 +75,14 @@ pnpm install
 cp .env.example .env
 ```
 
+Optionally, enable the local secret-scanning pre-commit hook (mirrors CI's
+gitleaks step, run against staged changes only - see [SECURITY.md](./SECURITY.md#dependency-and-secret-scanning-issue-85)):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+## Local development
 ---
 
 ## Local Development

@@ -1,0 +1,9 @@
+# Accepted `pnpm audit --audit-level=high` advisories (issue 8.5).
+#
+# One advisory ID per line (GHSA-xxxx-xxxx-xxxx, or whatever identifier
+# `pnpm audit`'s JSON surfaces for it - see .github/scripts/check-audit-allowlist.py).
+# Every entry MUST have a comment explaining why it's accepted (no fix
+# available, not reachable from our usage, accepted risk with an owner and
+# a re-review date) - never add an entry just to make CI green.
+#
+# Empty today - nothing has been reviewed and accepted yet.

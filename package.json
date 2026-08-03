@@ -8,8 +8,11 @@
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",
+    "test:scripts": "vitest run",
     "typecheck": "turbo run typecheck",
     "db:push": "pnpm --filter @checkout/api db:push",
+    "db:backup": "tsx scripts/db-backup.ts",
+    "db:restore": "tsx scripts/db-restore.ts",
     "docs:status-diagram": "node scripts/gen-status-diagram.mjs",
     "docs:check-status-diagram": "node scripts/gen-status-diagram.mjs --check",
     "docs:check-domain-boundary": "node scripts/check-domain-boundary.mjs",
@@ -17,10 +20,21 @@
     "demo:seed": "tsx scripts/demo-seed.ts",
     "demo:reset": "tsx scripts/demo-reset.ts"
   },
+  "dependencies": {
+    "@libsql/client": "0.17.4"
+  },
   "devDependencies": {
     "turbo": "2.9.18",
     "typescript": "6.0.3",
-    "@types/node": "25.9.3",
-    "tsx": "4.22.4"
+    "tsx": "4.22.4",
+    "vitest": "4.1.9",
+    "@types/node": "25.9.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "axios": ">=1.18.0",
+      "postcss": ">=8.5.18",
+      "sharp": ">=0.35.0"
+    }
   }
 }

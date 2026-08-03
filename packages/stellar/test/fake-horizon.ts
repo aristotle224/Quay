@@ -145,6 +145,11 @@ class FakeBuilder implements PaymentsCallBuilder {
     this.cursorToken = token;
     return this;
   }
+  join(_resource: "transactions"): PaymentsCallBuilder {
+    // The fake always embeds `transaction` on its records, so the join is a
+    // no-op here — it exists so the builder still satisfies the interface.
+    return this;
+  }
 
   async call(): Promise<{ records: HorizonPaymentRecord[] }> {
     if (this.client.isNotFoundAccount(this.account)) {

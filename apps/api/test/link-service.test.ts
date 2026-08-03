@@ -21,6 +21,7 @@ const STELLAR: StellarConfig = {
 };
 
 const UNUSED_RAIL: RailPort = {
+  async assertCanReceive() {},
   buildRequest() {
     throw new Error("not used in these tests");
   },
@@ -38,7 +39,12 @@ function makeService(opts: {
 }): LinkService {
   return new LinkService({
     links: opts.links,
-    sellers: { getDefault: async () => ({ id: "sel_1", name: "Seller", wallet: "GSELLER", createdAt: 0 }), findById: async () => null },
+    sellers: {
+      getDefault: async () => ({ id: "sel_1", name: "Seller", wallet: "GSELLER", createdAt: 0 }),
+      findById: async () => null,
+      findByWallet: async () => null,
+      createIfAbsent: async () => ({ id: "sel_1", name: "Seller", wallet: "GSELLER", createdAt: 0 }),
+    },
     webhooks: opts.webhooks ?? new FakeWebhookRepository(),
     rail: UNUSED_RAIL,
     offramp: opts.offramp,
@@ -46,6 +52,7 @@ function makeService(opts: {
     kyc: opts.kyc ?? new AlwaysAcceptedKyc(),
     stellar: STELLAR,
     correlation: "memo",
+    webhookGuard: async () => ({ ok: true }) as const,
   });
 }
 
