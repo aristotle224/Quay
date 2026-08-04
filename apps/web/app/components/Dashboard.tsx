@@ -168,6 +168,7 @@ function LinksTable({ links, copied, onCopy, onCashOut, cashOutBlocked }: TableP
               <Link href={`/links/${link.id}`} className="dash-link-title">
                 {link.title}
               </Link>
+              {link.isDemo && <> <DemoBadge /></>}
             </td>
             <td className="amt">
               {amountLabel(link)}

@@ -253,6 +253,7 @@ describe("property: exact payment is always paid", () => {
             offrampRate: null,
             offrampRateDelta: null,
             expiresAt: null,
+            isDemo: false,
             createdAt: 0,
             updatedAt: 0,
           };
@@ -302,6 +303,7 @@ describe("property: destination mismatch is never paid", () => {
             offrampRate: null,
             offrampRateDelta: null,
             expiresAt: null,
+            isDemo: false,
             createdAt: 0,
             updatedAt: 0,
           };
@@ -364,6 +366,7 @@ describe("property: memo whitespace is not trimmed", () => {
             offrampRate: null,
             offrampRateDelta: null,
             expiresAt: null,
+            isDemo: false,
             createdAt: 0,
             updatedAt: 0,
           };

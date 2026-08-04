@@ -27,6 +27,7 @@ const ownedLink: PaymentLink = {
   offrampRate: null,
   offrampRateDelta: null,
   expiresAt: null,
+  isDemo: false,
   createdAt: Date.now(),
   updatedAt: Date.now(),
 };

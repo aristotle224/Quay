@@ -193,14 +193,20 @@ in about a minute:
 pnpm demo:seed
 ```
 
+Prerequisite: `DEFAULT_SELLER_SECRET` in `.env` (matching the `DEFAULT_SELLER_WALLET` the API
+is running with). Since auth landed, every `/links` route is seller-authenticated, so the script
+logs in as the configured demo seller via SEP-10 and creates the links under that same seller —
+otherwise the dashboard you already know would have nothing to show.
+
 What it does:
 
 1. Generates a fresh buyer keypair and funds it via Friendbot (XLM) and the testanchor USDC
    dispenser.
-2. Creates several payment links via `POST /links` (flagged as demo data).
-3. Submits real Stellar testnet payments from the buyer to the seller wallet using each link's
+2. Authenticates as the demo seller (SEP-10 challenge → session token).
+3. Creates several payment links via `POST /links` (flagged as demo data).
+4. Submits real Stellar testnet payments from the buyer to the seller wallet using each link's
    memo so the on-chain watcher can match them.
-4. Waits for the watcher to mark the links **paid**, then triggers a cash-out on one so the
+5. Waits for the watcher to mark the links **paid**, then triggers a cash-out on one so the
    dashboard shows an `offramp_settled` row.
 
 Every seeded row is real on-chain testnet data — nothing is written directly to the database.
@@ -212,8 +218,9 @@ from links you create yourself.
 pnpm demo:reset
 ```
 
-`demo:reset` calls `POST /demo/reset` on the running API (testnet only; returns 403 on
-the public network).
+`demo:reset` calls `POST /demo/reset` on the running API. It's testnet-only (returns 403 on
+the public network) and requires a seller session, so the script logs in as the same demo
+seller using `DEFAULT_SELLER_SECRET`.
 
 ---
 

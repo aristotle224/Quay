@@ -7,9 +7,9 @@
  * empty screen.
  *
  * What it does:
- *   1. Generates (or reuses) a funded seller keypair via Friendbot.
- *   2. Generates a separate "buyer" keypair, also funded via Friendbot.
- *   3. Adds USDC trustlines on both accounts (testnet USDC only).
+ *   1. Authenticates as the configured demo seller (SEP-10 login → session).
+ *   2. Generates a fresh "buyer" keypair and funds it via Friendbot.
+ *   3. Adds a USDC trustline on the buyer (testnet USDC only).
  *   4. Funds the buyer with testnet USDC via the testanchor /testnet/friendbot endpoint.
  *   5. Creates several payment links via POST /links (flagged isDemo:true).
  *   6. Submits real Stellar payments from the buyer to the seller using the
@@ -21,13 +21,15 @@
  * Invariant: every row written is real on-chain testnet data — nothing is
  * fabricated directly in the database.
  *
+ * Auth: the script authenticates as the configured demo seller (SEP-10 login)
+ * so the seeded links land under the same seller the dashboard already knows.
+ * Requires DEFAULT_SELLER_SECRET (matching DEFAULT_SELLER_WALLET) in .env.
+ *
  * Usage:
  *   pnpm demo:seed                         # uses defaults from .env
  *   API_URL=http://localhost:8787 pnpm demo:seed
  */
 
-import { readFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
 import {
   Keypair,
   Networks,
@@ -37,49 +39,20 @@ import {
   BASE_FEE,
   Horizon,
 } from "@stellar/stellar-sdk";
+import { loadEnvFile, envValue } from "./lib/env";
+import { loginAsSeller } from "./lib/sep10-login";
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-function loadEnv(): Record<string, string> {
-  const candidates = [
-    resolve(process.cwd(), ".env"),
-    resolve(process.cwd(), "../../.env"),
-  ];
-  for (const p of candidates) {
-    if (!existsSync(p)) continue;
-    const result: Record<string, string> = {};
-    for (const raw of readFileSync(p, "utf8").split("\n")) {
-      const line = raw.trim();
-      if (!line || line.startsWith("#")) continue;
-      const eq = line.indexOf("=");
-      if (eq === -1) continue;
-      const key = line.slice(0, eq).trim();
-      let value = line.slice(eq + 1).trim();
-      if (
-        (value.startsWith('"') && value.endsWith('"')) ||
-        (value.startsWith("'") && value.endsWith("'"))
-      ) {
-        value = value.slice(1, -1);
-      }
-      result[key] = value;
-    }
-    return result;
-  }
-  return {};
-}
-
-const envFile = loadEnv();
-function cfg(key: string, fallback?: string): string {
-  const v = process.env[key] ?? envFile[key] ?? fallback;
-  if (v === undefined) throw new Error(`Missing required config: ${key}`);
-  return v;
-}
-
-const API_URL = cfg("API_URL", cfg("NEXT_PUBLIC_API_URL", "http://localhost:8787"));
-const HORIZON_URL = cfg("HORIZON_URL", "https://horizon-testnet.stellar.org");
-const USDC_ISSUER = cfg("USDC_ISSUER_TESTNET", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+const envFile = loadEnvFile();
+const API_URL = envValue(envFile, "API_URL", envValue(envFile, "NEXT_PUBLIC_API_URL", "http://localhost:8787"));
+const HORIZON_URL = envValue(envFile, "HORIZON_URL", "https://horizon-testnet.stellar.org");
+const USDC_ISSUER = envValue(envFile, "USDC_ISSUER_TESTNET", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+// The seed script logs in as the demo seller (SEP-10) so links land under the
+// seller the dashboard already shows. Only a secret can sign the challenge.
+const DEFAULT_SELLER_SECRET = envValue(envFile, "DEFAULT_SELLER_SECRET");
 const NETWORK_PASSPHRASE = Networks.TESTNET;
 const FRIENDBOT = "https://friendbot.stellar.org";
 // The testanchor hosts a USDC dispenser for testnet.
@@ -169,10 +142,10 @@ async function sendUsdc(
 // API helpers
 // ---------------------------------------------------------------------------
 
-async function apiPost<T>(path: string, body: unknown): Promise<T> {
+async function apiPost<T>(path: string, body: unknown, token: string): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
   });
   const text = await res.text();
@@ -180,8 +153,10 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return JSON.parse(text) as T;
 }
 
-async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`);
+async function apiGet<T>(path: string, token?: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: token ? { authorization: `Bearer ${token}` } : undefined,
+  });
   const text = await res.text();
   if (!res.ok) throw new Error(`GET ${path} → ${res.status}: ${text}`);
   return JSON.parse(text) as T;
@@ -232,6 +207,19 @@ async function main(): Promise<void> {
   const sellerWallet = health.sellerWallet;
   console.log(`  ✓ API ok  network=testnet  seller=${sellerWallet.slice(0, 8)}…\n`);
 
+  // -- Authenticate as the demo seller (SEP-10) -------------------------------
+  console.log("▶ Authenticating as demo seller via SEP-10…");
+  const { token, publicKey } = await loginAsSeller(API_URL, DEFAULT_SELLER_SECRET);
+  if (publicKey !== sellerWallet) {
+    // Belt-and-braces: the secret the operator configured must actually match
+    // the wallet the API is collecting payments into.
+    throw new Error(
+      "DEFAULT_SELLER_SECRET does not match the seller wallet served by GET /health " +
+      `(secret → ${publicKey.slice(0, 8)}…, health → ${sellerWallet.slice(0, 8)}…)`,
+    );
+  }
+  console.log(`  ✓ session minted for seller ${sellerWallet.slice(0, 8)}…\n`);
+
   const server = new Horizon.Server(HORIZON_URL);
 
   // -- Fund buyer account via Friendbot ---------------------------------------
@@ -274,7 +262,7 @@ async function main(): Promise<void> {
       amount: def.amount,
       assetCode: "USDC",
       isDemo: true,
-    });
+    }, token);
     console.log(`  ✓ ${def.title.padEnd(45)} ${def.amount} USDC  ref=${result.link.reference}`);
     created.push({ def, link: result.link, memo: result.request.memo });
   }
@@ -299,7 +287,7 @@ async function main(): Promise<void> {
     let settled = new Set<string>();
     for (let i = 0; i < POLL_MAX * (1000 / POLL_INTERVAL); i++) {
       await sleep(POLL_INTERVAL);
-      const { links } = await apiGet<{ links: Array<{ id: string; status: string }> }>("/links");
+      const { links } = await apiGet<{ links: Array<{ id: string; status: string }> }>("/links", token);
       for (const l of links) {
         if (paidIds.includes(l.id) && l.status === "paid") settled.add(l.id);
       }
@@ -318,12 +306,13 @@ async function main(): Promise<void> {
       const job = await apiPost<{ job: { jobId: string; status: string; targetAmount: string } }>(
         `/links/${cashOutDef.link.id}/cash-out`,
         { targetCurrency: "NGN" },
+        token,
       );
       console.log(`  ✓ job=${job.job.jobId}  status=${job.job.status}  target=${job.job.targetAmount} NGN`);
       // Wait for mock off-ramp to settle (it settles in ~8s).
       console.log("  Waiting for mock off-ramp to settle…");
       await sleep(12000);
-      const { links } = await apiGet<{ links: Array<{ id: string; status: string }> }>("/links");
+      const { links } = await apiGet<{ links: Array<{ id: string; status: string }> }>("/links", token);
       const settled = links.find((l) => l.id === cashOutDef.link.id);
       if (settled?.status === "offramp_settled") {
         console.log("  ✓ Link status: offramp_settled");

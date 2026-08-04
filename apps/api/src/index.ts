@@ -10,6 +10,7 @@ import { metricsRoutes } from "./routes/metrics";
 import { authRoutes } from "./routes/auth";
 import { wellKnownRoutes } from "./routes/well-known";
 import { kycRoutes } from "./routes/kyc";
+import { demoRoutes } from "./routes/demo";
 import { rateLimit, MemoryStore } from "./middleware/rate-limit";
 import { RedisStore } from "./middleware/redis-store";
 
@@ -101,6 +102,7 @@ async function main(): Promise<void> {
   );
   app.route("/.well-known", wellKnownRoutes(container.auth.stellarToml));
   app.route("/seller/kyc", kycRoutes(container));
+  app.route("/demo", demoRoutes(container));
 
   container.start();
 
