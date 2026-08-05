@@ -1,6 +1,6 @@
 /**
  * Test for per-seller watcher fan-out with fairness limits.
- * 
+ *
  * This test verifies that:
  * - 200 simulated destinations complete a tick inside one poll interval
  * - One failing account cannot delay the others
@@ -9,8 +9,16 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { WatcherLoop, type AccountCircuitBreakerStatus, type WatcherMetrics } from "./watcher-loop";
-import type { WatcherPort, LinkRepository, WatcherStateRepository } from "@checkout/core";
+import {
+  WatcherLoop,
+  type AccountCircuitBreakerStatus,
+  type WatcherMetrics,
+} from "./watcher-loop";
+import type {
+  WatcherPort,
+  LinkRepository,
+  WatcherStateRepository,
+} from "@checkout/core";
 import type { LinkService } from "../services/link-service";
 
 // Mock implementations
@@ -28,6 +36,8 @@ const mockLinks: LinkRepository = {
   listBySeller: vi.fn(),
   listByStatus: vi.fn(),
   save: vi.fn(),
+  recordPayment: vi.fn(),
+  sumPaymentsForLink: vi.fn(),
 };
 
 const mockState: WatcherStateRepository = {
@@ -60,9 +70,9 @@ describe("WatcherLoop fan-out with fairness", () => {
   it("should process 200 accounts within one poll interval", async () => {
     // Generate 200 simulated accounts
     const accounts = Array.from({ length: 200 }, (_, i) => `account_${i}`);
-    
+
     (mockLinks.activeDestinations as any).mockResolvedValue(accounts);
-    
+
     // Mock successful responses for all accounts
     for (const account of accounts) {
       (mockState.getCursor as any).mockResolvedValueOnce("initial_cursor");
@@ -76,7 +86,7 @@ describe("WatcherLoop fan-out with fairness", () => {
 
     // Should complete well within the poll interval
     expect(duration).toBeLessThan(pollMs);
-    
+
     // Verify metrics
     const metrics = loop.getMetrics();
     expect(metrics.accountsWatched).toBe(200);
@@ -90,11 +100,11 @@ describe("WatcherLoop fan-out with fairness", () => {
     // Track concurrent calls
     let concurrentCalls = 0;
     let maxConcurrentCalls = 0;
-    
+
     (mockState.getCursor as any).mockImplementation(async () => {
       concurrentCalls++;
       maxConcurrentCalls = Math.max(maxConcurrentCalls, concurrentCalls);
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
       concurrentCalls--;
       return "cursor";
     });
@@ -114,12 +124,14 @@ describe("WatcherLoop fan-out with fairness", () => {
     (mockLinks.activeDestinations as any).mockResolvedValue(accounts);
 
     (mockState.getCursor as any).mockResolvedValue("cursor");
-    (mockWatcher.fetchSince as any).mockImplementation(async (account: string) => {
-      if (account === "bad_account") {
-        throw new Error("Network error");
-      }
-      return [];
-    });
+    (mockWatcher.fetchSince as any).mockImplementation(
+      async (account: string) => {
+        if (account === "bad_account") {
+          throw new Error("Network error");
+        }
+        return [];
+      },
+    );
     (mockLinks.openLinksForDestination as any).mockResolvedValue([]);
 
     // Run 6 ticks to trigger circuit breaker threshold and observe open status
@@ -128,7 +140,9 @@ describe("WatcherLoop fan-out with fairness", () => {
     }
 
     const circuitBreakers = loop.getCircuitBreakerStatus();
-    const badAccountStatus = circuitBreakers.find((cb) => cb.account.startsWith("bad_"));
+    const badAccountStatus = circuitBreakers.find((cb) =>
+      cb.account.startsWith("bad_"),
+    );
 
     expect(badAccountStatus).toBeDefined();
     expect(badAccountStatus?.isOpen).toBe(true);
@@ -149,7 +163,7 @@ describe("WatcherLoop fan-out with fairness", () => {
     }
 
     const metrics = loop.getMetrics();
-    
+
     // All accounts should have been processed (lag should be reasonable)
     // With round-robin, no account should be starved
     const maxLag = Math.max(...metrics.perAccountLag.values());
@@ -164,10 +178,12 @@ describe("WatcherLoop fan-out with fairness", () => {
     (mockLinks.activeDestinations as any).mockResolvedValue(accounts);
 
     (mockState.getCursor as any).mockResolvedValue("cursor");
-    (mockWatcher.fetchSince as any).mockImplementation(async (account: string) => {
-      if (account === "idle_account") return [];
-      return [{ txHash: `tx_${fakeTime}`, pagingToken: `token_${fakeTime}` }];
-    });
+    (mockWatcher.fetchSince as any).mockImplementation(
+      async (account: string) => {
+        if (account === "idle_account") return [];
+        return [{ txHash: `tx_${fakeTime}`, pagingToken: `token_${fakeTime}` }];
+      },
+    );
     (mockLinks.openLinksForDestination as any).mockResolvedValue([]);
     (mockState.isProcessed as any).mockResolvedValue(false);
 
@@ -201,8 +217,10 @@ describe("WatcherLoop fan-out with fairness", () => {
 
     // New account should be marked and processed
     const circuitBreakers = loop.getCircuitBreakerStatus();
-    const newAccountStatus = circuitBreakers.find(cb => cb.account.startsWith("new_"));
-    
+    const newAccountStatus = circuitBreakers.find((cb) =>
+      cb.account.startsWith("new_"),
+    );
+
     expect(newAccountStatus).toBeDefined();
     expect(newAccountStatus?.consecutiveErrors).toBe(0);
   });
@@ -217,7 +235,7 @@ describe("WatcherLoop fan-out with fairness", () => {
     await loop.runOnce();
 
     const status = loop.getCircuitBreakerStatus();
-    
+
     expect(Array.isArray(status)).toBe(true);
     expect(status.length).toBeGreaterThan(0);
     expect(status[0]).toHaveProperty("account");
@@ -237,12 +255,12 @@ describe("WatcherLoop fan-out with fairness", () => {
     await loop.runOnce();
 
     const metrics = loop.getMetrics();
-    
+
     expect(metrics).toHaveProperty("accountsWatched");
     expect(metrics).toHaveProperty("tickDurationMs");
     expect(metrics).toHaveProperty("circuitBreakersOpen");
     expect(metrics).toHaveProperty("perAccountLag");
-    
+
     expect(metrics.accountsWatched).toBe(10);
     expect(typeof metrics.tickDurationMs).toBe("number");
     expect(metrics.perAccountLag.size).toBe(10);

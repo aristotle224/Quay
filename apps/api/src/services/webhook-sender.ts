@@ -1,4 +1,6 @@
 import { createHmac } from "node:crypto";
+import type { Logger } from "@checkout/core";
+import { NOOP_LOGGER } from "@checkout/core";
 import type { Webhook, WebhookRepository } from "@checkout/core";
 import { decryptSecret } from "./secret-crypto";
 import { metrics } from "../metrics";
@@ -20,6 +22,8 @@ export interface WebhookSenderOptions {
   baseDelayMs?: number;
   /** Per-request timeout in ms (default 8000). */
   timeoutMs?: number;
+  /** Optional logger; emits one line per attempt (success / retry / terminal failure). */
+  logger?: Logger;
   /** Cap on response body reads in bytes (default 64 KB). */
   maxResponseBytes?: number;
   /**
@@ -65,6 +69,7 @@ export class WebhookSender {
   private readonly maxAttempts: number;
   private readonly baseDelayMs: number;
   private readonly timeoutMs: number;
+  private readonly logger: Logger;
   private readonly maxResponseBytes: number;
   private readonly guard: NonNullable<WebhookSenderOptions["guard"]>;
   private inFlight = 0;
@@ -76,9 +81,9 @@ export class WebhookSender {
     this.maxAttempts = Math.max(1, opts.maxAttempts ?? 4);
     this.baseDelayMs = opts.baseDelayMs ?? 500;
     this.timeoutMs = opts.timeoutMs ?? 8000;
-    this.maxResponseBytes = opts.maxResponseBytes ?? 64 * 1024;
-    this.guard = opts.guard ?? ((url: string) => guardWebhookUrl(url, { allowlist: HOST_ALLOWLIST }));
+    this.logger = opts.logger ?? NOOP_LOGGER;
     this.maxResponseBytes = opts.maxResponseBytes ?? 64 * 1024; // 64 KB
+    this.guard = opts.guard ?? ((url: string) => guardWebhookUrl(url, { allowlist: HOST_ALLOWLIST }));
   }
 
   /** Deliveries currently in progress, including in-process retry backoff. */
@@ -86,18 +91,29 @@ export class WebhookSender {
     return this.inFlight;
   }
 
-  async dispatch(hooks: Webhook[], linkId: string, event: WebhookEvent): Promise<void> {
+  async dispatch(hooks: Webhook[], linkId: string, event: WebhookEvent, opts: { logger?: Logger } = {}): Promise<void> {
+    const baseLog = opts.logger ?? this.logger;
     const body = JSON.stringify({ ...event, id: linkId, sentAt: new Date().toISOString() });
 
-    await Promise.all(hooks.map((hook) => this.deliver(hook, linkId, event.event, body)));
+    await Promise.all(hooks.map((hook) => this.deliver(baseLog, hook, linkId, event.event, body)));
   }
 
   private async deliver(
+    baseLog: Logger,
     hook: Webhook,
     linkId: string,
     event: string,
     body: string,
   ): Promise<void> {
+    const child = baseLog.child({
+      linkId,
+      webhookId: hook.id,
+      eventType: event,
+      // We log the URL host only — the path might carry signed data the receiver
+      // treats as sensitive, and we already record the link + event for grep.
+      url: safeHost(hook.url),
+    });
+
     // Re-check the URL at delivery time: a hostname that resolved to a public
     // address at registration may resolve to an internal one now. This narrows
     // the DNS-rebinding window but does not close it — the fetch below still
@@ -105,6 +121,7 @@ export class WebhookSender {
     // address we checked. See the follow-up noted on PR #108.
     const guard = await this.guard(hook.url);
     if (!guard.ok) {
+      child.warn({ event: "webhook.failed", reason: guard.reason }, "SSRF guard rejected URL at delivery");
       await this.repo.recordDelivery({
         webhookId: hook.id,
         linkId,
@@ -167,6 +184,7 @@ export class WebhookSender {
 
           if (res.ok) {
             metrics.webhookAttemptsTotal.inc({ result: "ok" });
+            child.info({ event: "webhook.attempt", attempt, statusCode: res.status, delivered: true }, "webhook delivered");
             await this.repo.recordDelivery({ webhookId: hook.id, linkId, event, statusCode: res.status, ok: true, error: null });
             return;
           }
@@ -182,9 +200,15 @@ export class WebhookSender {
           error = err instanceof Error ? err.message : String(err);
         }
 
-        if (attempt < this.maxAttempts) await sleep(this.backoff(attempt));
+        const willRetry = attempt < this.maxAttempts;
+        child.info(
+          { event: "webhook.attempt", attempt, statusCode, error, delivered: false, willRetry },
+          willRetry ? "webhook attempt failed, will retry" : "webhook attempt failed",
+        );
+        if (willRetry) await sleep(this.backoff(attempt));
       }
 
+      child.warn({ event: "webhook.failed", statusCode, error }, "webhook delivery exhausted all attempts");
       await this.repo.recordDelivery({ webhookId: hook.id, linkId, event, statusCode, ok: false, error });
     } finally {
       this.inFlight -= 1;
@@ -220,6 +244,15 @@ export class WebhookSender {
   private backoff(attempt: number): number {
     const ceiling = this.baseDelayMs * 2 ** (attempt - 1);
     return Math.floor(Math.random() * ceiling);
+  }
+}
+
+/** Keep the host (and optional port); drop the path so a paranoid grep never lands on us. */
+function safeHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "<unparsable>";
   }
 }
 

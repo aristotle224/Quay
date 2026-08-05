@@ -1,9 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
+  fromStroops,
+  toStroops,
   type KycPort,
   type KycRecord,
+  type LinkPaymentRecord,
   type LinkRepository,
   type NormalizedPayment,
+  type OffRampInitiation,
   type OffRampJob,
   type OffRampJobStatus,
   type OffRampPort,
@@ -40,12 +44,17 @@ function link(over: Partial<PaymentLink> = {}): PaymentLink {
     txHash: null,
     payer: null,
     paidAmount: null,
+    overpaidAmount: null,
     offrampJobId: null,
     offrampTargetCurrency: null,
     offrampStatus: null,
     offrampIndicativeRate: null,
     offrampRate: null,
     offrampRateDelta: null,
+    offrampFeeAmount: null,
+    offrampFeeCurrency: null,
+    offrampFeeSource: null,
+    offrampNetTargetAmount: null,
     expiresAt: null,
     isDemo: false,
     createdAt: 1_700_000_000_000,
@@ -252,12 +261,17 @@ class FakeLinkRepoForAnchor implements LinkRepository {
       txHash: null,
       payer: null,
       paidAmount: null,
+      overpaidAmount: null,
       offrampJobId: null,
       offrampTargetCurrency: null,
       offrampStatus: null,
       offrampIndicativeRate: null,
       offrampRate: null,
       offrampRateDelta: null,
+      offrampFeeAmount: null,
+      offrampFeeCurrency: null,
+      offrampFeeSource: null,
+      offrampNetTargetAmount: null,
       expiresAt: input.expiresAt,
       isDemo: input.isDemo ?? false,
       createdAt: Date.now(),
@@ -287,6 +301,19 @@ class FakeLinkRepoForAnchor implements LinkRepository {
   }
   async save(l: PaymentLink): Promise<void> {
     this.byId.set(l.id, { ...l });
+  }
+  private readonly payments: LinkPaymentRecord[] = [];
+  private readonly seenTxHashes = new Set<string>();
+  async recordPayment(payment: LinkPaymentRecord): Promise<void> {
+    if (this.seenTxHashes.has(payment.txHash)) return;
+    this.seenTxHashes.add(payment.txHash);
+    this.payments.push(payment);
+  }
+  async sumPaymentsForLink(linkId: string): Promise<string> {
+    const total = this.payments
+      .filter((p) => p.linkId === linkId)
+      .reduce((sum, p) => sum + toStroops(p.amount), 0n);
+    return fromStroops(total);
   }
 }
 
@@ -431,10 +458,12 @@ class FlakyOffRamp implements OffRampPort {
       targetAmount: "16500",
       rate: "1650",
       expiresAt: Date.now() + 60_000,
+      fee: { amount: "165", currency: "NGN", source: "estimated" },
+      netTargetAmount: "16335",
     };
   }
-  async initiate(_input: Parameters<OffRampPort["initiate"]>[0]): Promise<OffRampJob> {
-    return { jobId: "ofr_1", linkId: "lnk_1", status: "pending", targetCurrency: "NGN", targetAmount: "16500", rate: "1650" };
+  async initiate(_input: Parameters<OffRampPort["initiate"]>[0]): Promise<OffRampInitiation> {
+    return { kind: "fields", jobId: "ofr_1" };
   }
   async status(jobId: string): Promise<OffRampJob> {
     if (this.opts.statusShouldThrow) {
@@ -482,11 +511,11 @@ function buildSvcWithHealth(health: AnchorHealth, offramp: OffRampPort): Svc {
   captureRoute.post("/:id/cash-out", async (ctx) => {
     const body = (await ctx.req.json().catch(() => ({}))) as Record<string, unknown>;
     try {
-      const job = await service.triggerCashOut(ctx.req.param("id"), {
+      const { job, initiation } = await service.triggerCashOut(ctx.req.param("id"), {
         targetCurrency: typeof body.targetCurrency === "string" ? body.targetCurrency : "NGN",
         payoutFields: (body.payoutFields as Record<string, string> | undefined) ?? {},
       });
-      return ctx.json({ job }, 200);
+      return ctx.json({ job, initiation }, 200);
     } catch (err) {
       if (err instanceof Error && "status" in err) {
         return ctx.json(
@@ -509,7 +538,7 @@ describe("LinkService with AnchorHealth", () => {
         offrampCalls.push("quote");
         throw new Error("should not be called when breaker is open");
       }
-      async initiate(): Promise<OffRampJob> {
+      async initiate(): Promise<OffRampInitiation> {
         offrampCalls.push("initiate");
         throw new Error("should not be called when breaker is open");
       }
@@ -691,7 +720,7 @@ describe("LinkService.pollCashOuts attribution", () => {
       async quote(): Promise<OffRampQuote> {
         throw new Error("unused");
       },
-      async initiate(): Promise<OffRampJob> {
+      async initiate(): Promise<OffRampInitiation> {
         throw new Error("unused");
       },
       async status(jobId: string): Promise<OffRampJob> {
@@ -777,7 +806,7 @@ describe("LinkService.pollCashOuts attribution", () => {
     const offramp = {
       mode: "seller_initiated" as const,
       async quote(): Promise<OffRampQuote> { throw new Error("unused"); },
-      async initiate(): Promise<OffRampJob> { throw new Error("unused"); },
+      async initiate(): Promise<OffRampInitiation> { throw new Error("unused"); },
       async status(_jobId: string): Promise<OffRampJob> {
         statusCalls++;
         throw new Error("anchor 502");

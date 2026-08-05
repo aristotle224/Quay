@@ -1,6 +1,6 @@
 import type { AssetRef, PaymentLink } from "../domain/payment-link";
 import { assetEquals, isNative } from "../domain/payment-link";
-import { compareAmount } from "../domain/money";
+import { fromStroops, toStroops } from "../domain/money";
 
 // A Horizon payment, normalized into the shape the matcher needs.
 // (The Stellar adapter is responsible for producing this from a raw Horizon record.)
@@ -20,8 +20,12 @@ export interface NormalizedPayment {
 }
 
 export type MatchOutcome =
-  | { kind: "paid"; link: PaymentLink; overpaid: boolean } // exact or over -> treat as paid
-  | { kind: "underpaid"; link: PaymentLink } // arrived, but for less than requested
+  // exact or over -> treat as paid. `receivedTotal`/`overpaidAmount` are the
+  // *cumulative* total across every payment recorded against the link so far,
+  // this one included (issue 1.4 — top-ups and split payments).
+  | { kind: "paid"; link: PaymentLink; overpaid: boolean; receivedTotal: string; overpaidAmount: string }
+  // arrived, but the cumulative total is still short of the requested amount.
+  | { kind: "underpaid"; link: PaymentLink; receivedTotal: string; outstanding: string }
   | { kind: "asset_mismatch"; link: PaymentLink } // memo matched a link, wrong asset
   | { kind: "no_memo" } // payment carried no usable memo
   | { kind: "unknown_reference" }; // memo present but no link with that reference
@@ -69,9 +73,30 @@ function evaluate(payment: NormalizedPayment, link: PaymentLink): MatchOutcome {
     return { kind: "asset_mismatch", link };
   }
 
-  const cmp = compareAmount(payment.amount, link.amount);
-  if (cmp === "under") return { kind: "underpaid", link };
-  return { kind: "paid", link, overpaid: cmp === "over" };
+  // Cumulative: this payment tops up whatever the link has already received,
+  // not a fresh comparison against the full requested amount (issue 1.4) — a
+  // buyer sending 10 then 15 against a 25 link must complete on the second leg.
+  const alreadyReceived = link.paidAmount ? toStroops(link.paidAmount) : 0n;
+  const received = alreadyReceived + toStroops(payment.amount);
+  const requested = toStroops(link.amount);
+
+  if (received < requested) {
+    return {
+      kind: "underpaid",
+      link,
+      receivedTotal: fromStroops(received),
+      outstanding: fromStroops(requested - received),
+    };
+  }
+
+  const overpaidStroops = received - requested;
+  return {
+    kind: "paid",
+    link,
+    overpaid: overpaidStroops > 0n,
+    receivedTotal: fromStroops(received),
+    overpaidAmount: fromStroops(overpaidStroops),
+  };
 }
 
 function assetMatches(received: AssetRef, expected: AssetRef): boolean {

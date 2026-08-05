@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { OffRampJob, OffRampPort, OffRampQuote } from "@checkout/core";
+import type { OffRampInitiation, OffRampJob, OffRampPort, OffRampQuote } from "@checkout/core";
 import { CircuitBreakerOffRamp } from "../src/services/circuit-breaker";
 
 const fakeQuote: OffRampQuote = {
@@ -10,6 +10,8 @@ const fakeQuote: OffRampQuote = {
   targetAmount: "1",
   rate: "1",
   expiresAt: Date.now() + 60_000,
+  fee: { amount: "0", currency: "USD", source: "estimated" },
+  netTargetAmount: "1",
 };
 
 const fakeJob: OffRampJob = {
@@ -21,11 +23,13 @@ const fakeJob: OffRampJob = {
   rate: "1",
 };
 
+const fakeInitiation: OffRampInitiation = { kind: "fields", jobId: "j1" };
+
 function fakePort(overrides: Partial<OffRampPort> = {}): OffRampPort {
   return {
     mode: "seller_initiated",
     quote: vi.fn(async () => fakeQuote),
-    initiate: vi.fn(async () => fakeJob),
+    initiate: vi.fn(async () => fakeInitiation),
     status: vi.fn(async () => fakeJob),
     ...overrides,
   };

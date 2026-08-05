@@ -1,5 +1,6 @@
 import type {
   AssetRef,
+  OffRampInitiation,
   OffRampJob,
   OffRampMode,
   OffRampPort,
@@ -60,7 +61,7 @@ export class CircuitBreakerOffRamp implements OffRampPort {
     return this.call("quote", () => this.inner.quote(input));
   }
 
-  initiate(input: { linkId: string; quoteId: string; payout: SellerPayoutRef }): Promise<OffRampJob> {
+  initiate(input: { linkId: string; quoteId: string; payout: SellerPayoutRef }): Promise<OffRampInitiation> {
     return this.call("initiate", () => this.inner.initiate(input));
   }
 

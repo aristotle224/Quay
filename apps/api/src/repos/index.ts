@@ -5,6 +5,7 @@ import type {
   KycRecord,
   KycRepository,
   KycStatus,
+  LinkPaymentRecord,
   LinkRepository,
   OffRampStateRepository,
   PaymentLink,
@@ -22,6 +23,7 @@ import type {
 import type { DB } from "../db/client";
 import {
   links,
+  linkPayments,
   sellers,
   webhooks,
   webhookDeliveries,
@@ -32,6 +34,7 @@ import {
   sellerKyc,
   revokedTokens,
 } from "../db/schema";
+import { fromStroops, toStroops } from "@checkout/core";
 import { newId } from "../services/ids";
 import { decryptPii, encryptPii } from "../crypto/pii";
 import { encryptSecret, last4 } from "../services/secret-crypto";
@@ -58,12 +61,17 @@ function rowToLink(row: LinkRow): PaymentLink {
     txHash: row.txHash ?? null,
     payer: row.payer ?? null,
     paidAmount: row.paidAmount ?? null,
+    overpaidAmount: row.overpaidAmount ?? null,
     offrampJobId: row.offrampJobId ?? null,
     offrampTargetCurrency: row.offrampTargetCurrency ?? null,
     offrampStatus: row.offrampStatus ?? null,
     offrampIndicativeRate: row.offrampIndicativeRate ?? null,
     offrampRate: row.offrampRate ?? null,
     offrampRateDelta: row.offrampRateDelta ?? null,
+    offrampFeeAmount: row.offrampFeeAmount ?? null,
+    offrampFeeCurrency: row.offrampFeeCurrency ?? null,
+    offrampFeeSource: row.offrampFeeSource ?? null,
+    offrampNetTargetAmount: row.offrampNetTargetAmount ?? null,
     expiresAt: row.expiresAt ?? null,
     isDemo: row.isDemo ?? false,
     createdAt: row.createdAt,
@@ -90,12 +98,17 @@ export class DrizzleLinkRepository implements LinkRepository {
       txHash: null,
       payer: null,
       paidAmount: null,
+      overpaidAmount: null,
       offrampJobId: null,
       offrampTargetCurrency: null,
       offrampStatus: null,
       offrampIndicativeRate: null,
       offrampRate: null,
       offrampRateDelta: null,
+      offrampFeeAmount: null,
+      offrampFeeCurrency: null,
+      offrampFeeSource: null,
+      offrampNetTargetAmount: null,
       expiresAt: input.expiresAt,
       isDemo: input.isDemo ?? false,
       createdAt: now,
@@ -149,12 +162,17 @@ export class DrizzleLinkRepository implements LinkRepository {
         txHash: link.txHash,
         payer: link.payer,
         paidAmount: link.paidAmount,
+        overpaidAmount: link.overpaidAmount,
         offrampJobId: link.offrampJobId,
         offrampTargetCurrency: link.offrampTargetCurrency,
         offrampStatus: link.offrampStatus,
         offrampIndicativeRate: link.offrampIndicativeRate,
         offrampRate: link.offrampRate,
         offrampRateDelta: link.offrampRateDelta,
+        offrampFeeAmount: link.offrampFeeAmount,
+        offrampFeeCurrency: link.offrampFeeCurrency,
+        offrampFeeSource: link.offrampFeeSource,
+        offrampNetTargetAmount: link.offrampNetTargetAmount,
         updatedAt: Date.now(),
       })
       .where(eq(links.id, link.id));
@@ -167,6 +185,31 @@ export class DrizzleLinkRepository implements LinkRepository {
       await this.db.delete(links).where(eq(links.isDemo, true));
     }
     return rows.length;
+  }
+
+  async recordPayment(payment: LinkPaymentRecord): Promise<void> {
+    await this.db
+      .insert(linkPayments)
+      .values({
+        id: newId("pmt"),
+        linkId: payment.linkId,
+        txHash: payment.txHash,
+        payer: payment.payer,
+        amount: payment.amount,
+        assetCode: payment.asset.code,
+        assetIssuer: payment.asset.issuer,
+        createdAt: payment.createdAt,
+      })
+      .onConflictDoNothing({ target: linkPayments.txHash });
+  }
+
+  async sumPaymentsForLink(linkId: string): Promise<string> {
+    const rows = await this.db
+      .select({ amount: linkPayments.amount })
+      .from(linkPayments)
+      .where(eq(linkPayments.linkId, linkId));
+    const total = rows.reduce((sum, r) => sum + toStroops(r.amount), 0n);
+    return fromStroops(total);
   }
 }
 

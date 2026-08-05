@@ -14,6 +14,8 @@ function makeQuote(expiresAt: number): OffRampQuote {
     targetAmount: "16500",
     rate: "1650",
     expiresAt,
+    fee: { amount: "165", currency: "NGN", source: "estimated" },
+    netTargetAmount: "16335",
   };
 }
 

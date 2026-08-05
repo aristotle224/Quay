@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Container } from "../src/services/container";
-import type { Seller, SellerRepository, TokenRevocationRepository } from "@checkout/core";
+import { NOOP_LOGGER, type Seller, type SellerRepository, type TokenRevocationRepository } from "@checkout/core";
 import { SessionIssuer } from "../src/services/session";
 import { demoRoutes } from "../src/routes/demo";
 
@@ -22,6 +22,7 @@ function fakeContainer(deleteDemo: () => Promise<number>): Container {
 
   return {
     service: {} as Container["service"],
+    logger: NOOP_LOGGER,
     links: { deleteDemo } as unknown as Container["links"],
     sellers: sellers as unknown as Container["sellers"],
     webhooks: {} as Container["webhooks"],

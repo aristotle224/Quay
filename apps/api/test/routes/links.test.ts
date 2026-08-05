@@ -271,6 +271,80 @@ describe("POST /links/:id/cash-out", () => {
 });
 
 // ---------------------------------------------------------------------------
+//  GET /links/:id/cash-out/quote — firm gross/fee/net preview (issue 1.5)
+// ---------------------------------------------------------------------------
+
+describe("GET /links/:id/cash-out/quote", () => {
+  async function createAndPayLink(): Promise<string> {
+    const createRes = await req("/links", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Quote test", amount: "10" }),
+    });
+    const created = (await createRes.json()) as Record<string, unknown>;
+    const linkId = (created.link as Record<string, unknown>).id as string;
+
+    const link = await container.links.findById(linkId);
+    if (link) {
+      link.status = "paid";
+      link.txHash = `tx_quote_${linkId}`;
+      link.payer = "GBUYER";
+      link.paidAmount = "10";
+      await container.links.save(link);
+    }
+    return linkId;
+  }
+
+  it("returns 400 when targetCurrency is missing", async () => {
+    const linkId = await createAndPayLink();
+    const res = await req(`/links/${linkId}/cash-out/quote`);
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 409 when link is not paid", async () => {
+    const createRes = await req("/links", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Quote test", amount: "10" }),
+    });
+    const created = (await createRes.json()) as Record<string, unknown>;
+    const linkId = (created.link as Record<string, unknown>).id as string;
+
+    const res = await req(`/links/${linkId}/cash-out/quote?targetCurrency=NGN`);
+    expect(res.status).toBe(409);
+  });
+
+  it("returns 404 when link does not exist", async () => {
+    const res = await req("/links/lnk_nonexistent/cash-out/quote?targetCurrency=NGN");
+    expect(res.status).toBe(404);
+  });
+
+  it("returns gross, fee, and net without initiating anything (link stays paid)", async () => {
+    const linkId = await createAndPayLink();
+
+    const res = await req(`/links/${linkId}/cash-out/quote?targetCurrency=NGN`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.targetAmount).toBeDefined(); // gross
+    expect(body.fee).toBeDefined();
+    expect(body.netTargetAmount).toBeDefined();
+    const fee = body.fee as Record<string, unknown>;
+    expect(fee.source).toBeDefined();
+
+    // Net + fee reconstructs gross.
+    const gross = Number(body.targetAmount);
+    const feeAmount = Number(fee.amount);
+    const net = Number(body.netTargetAmount);
+    expect(net + feeAmount).toBeCloseTo(gross, 6);
+
+    // Nothing state-changing happened — the link is still just paid, no job.
+    const stillPaid = await container.links.findById(linkId);
+    expect(stillPaid?.status).toBe("paid");
+    expect(stillPaid?.offrampJobId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 //  Rate-limit headers
 // ---------------------------------------------------------------------------
 

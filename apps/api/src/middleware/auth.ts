@@ -2,10 +2,14 @@ import { getCookie } from "hono/cookie";
 import type { Context, MiddlewareHandler, Next } from "hono";
 import type { Seller, SellerRepository, TokenRevocationRepository } from "@checkout/core";
 import type { SessionIssuer } from "../services/session";
+import type { RequestContextVariables } from "../request-context";
 
 export const SESSION_COOKIE = "session";
 
-export interface AuthedVariables {
+// Extends RequestContextVariables — `requestContext` middleware is installed
+// ahead of `requireSeller` on every route (see index.ts), so requestId/logger
+// are always present by the time a route handler runs.
+export interface AuthedVariables extends RequestContextVariables {
   seller: Seller;
   jti: string;
   /** epoch seconds — the verified token's own `exp`, handed to routes (e.g.

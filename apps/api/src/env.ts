@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,7 +13,7 @@ function loadEnvFiles(): void {
     resolve(here, "../../../../.env"),
   ];
   for (const path of candidates) {
-    if (!existsSync(path)) continue;
+    if (!existsSync(path) || !statSync(path).isFile()) continue;
     const text = readFileSync(path, "utf8");
     for (const raw of text.split("\n")) {
       const line = raw.trim();
@@ -71,6 +71,8 @@ if (offramp !== "mock" && offramp !== "testanchor") {
 
 export const env = {
   network,
+  // JSON-line log verbosity. trace|debug|info|warn|error|fatal, default "info".
+  logLevel: process.env.LOG_LEVEL || "info",
   horizonUrl: process.env.HORIZON_URL || undefined,
   // Optional standby Horizon endpoint. The watcher switches to it after
   // several consecutive failures on the primary, and back on recovery.

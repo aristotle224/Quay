@@ -25,14 +25,29 @@ export function toStroops(amount: string): bigint {
 export function normalizeAmount(amount: string): string {
   const stroops = toStroops(amount);
   const whole = stroops / 10_000_000n;
-  const frac = (stroops % 10_000_000n).toString().padStart(7, "0").replace(/0+$/, "");
+  const frac = (stroops % 10_000_000n)
+    .toString()
+    .padStart(7, "0")
+    .replace(/0+$/, "");
+  return frac.length ? `${whole}.${frac}` : `${whole}`;
+}
+
+export function fromStroops(stroops: bigint): string {
+  const whole = stroops / 10_000_000n;
+  const frac = (stroops % 10_000_000n)
+    .toString()
+    .padStart(7, "0")
+    .replace(/0+$/, "");
   return frac.length ? `${whole}.${frac}` : `${whole}`;
 }
 
 export type AmountComparison = "exact" | "over" | "under";
 
 /** Compare a received amount against an expected amount, in stroops. */
-export function compareAmount(received: string, expected: string): AmountComparison {
+export function compareAmount(
+  received: string,
+  expected: string,
+): AmountComparison {
   const r = toStroops(received);
   const e = toStroops(expected);
   if (r === e) return "exact";

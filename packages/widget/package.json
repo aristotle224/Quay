@@ -1,0 +1,19 @@
+{
+  "name": "@checkout/widget",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/widget.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0",
+    "happy-dom": "^20.11.1",
+    "typescript": "5.7.2",
+    "vitest": "4.1.9"
+  }
+}

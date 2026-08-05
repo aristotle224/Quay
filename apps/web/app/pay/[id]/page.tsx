@@ -2,8 +2,16 @@ import Link from "next/link";
 import { api, CheckoutError } from "../../../lib/api";
 import CheckoutClient from "../../components/CheckoutClient";
 
-export default async function PayPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function PayPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ embed?: string }>;
+}) {
   const { id } = await params;
+  const { embed } = await searchParams;
+  const isEmbed = embed === "true";
 
   let data;
   try {
@@ -12,7 +20,7 @@ export default async function PayPage({ params }: { params: Promise<{ id: string
     const isUnreachable = err instanceof CheckoutError && err.code === "unreachable";
 
     return (
-      <main className="shell shell--narrow">
+      <main className={isEmbed ? "shell shell--embed" : "shell shell--narrow"}>
         <div className="panel checkout">
           {isUnreachable ? (
             <>
@@ -43,12 +51,14 @@ export default async function PayPage({ params }: { params: Promise<{ id: string
   }
 
   return (
-    <main className="shell shell--narrow">
-      <header className="masthead">
-        <h1>Stellar Checkout</h1>
-        <span className="net mono">{data.link.asset.code}</span>
-      </header>
-      <div className="panel">
+    <main className={isEmbed ? "shell shell--embed" : "shell shell--narrow"}>
+      {!isEmbed && (
+        <header className="masthead">
+          <h1>Stellar Checkout</h1>
+          <span className="net mono">{data.link.asset.code}</span>
+        </header>
+      )}
+      <div className={isEmbed ? "panel panel--embed" : "panel"}>
         <CheckoutClient initial={data} />
       </div>
     </main>

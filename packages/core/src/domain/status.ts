@@ -16,7 +16,9 @@ export type LinkStatus = (typeof LINK_STATUSES)[number];
 
 const TRANSITIONS: Record<LinkStatus, readonly LinkStatus[]> = {
   active: ["paid", "underpaid", "expired", "cancelled"],
-  underpaid: ["paid", "expired", "cancelled"], // completes if topped up, or void
+  // "underpaid" is self-reachable: a link can take more than one partial
+  // top-up before it finally completes (issue 1.4 — split payments).
+  underpaid: ["paid", "underpaid", "expired", "cancelled"],
   paid: ["offramp_pending"],
   offramp_pending: ["offramp_settled", "offramp_failed"],
   offramp_failed: ["offramp_pending"], // retry

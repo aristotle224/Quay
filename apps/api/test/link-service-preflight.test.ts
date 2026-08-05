@@ -24,7 +24,7 @@ const stellar: StellarConfig = {
 
 function fakeLinks(): LinkRepository {
   return {
-    create: vi.fn(async (input) => ({ ...input, status: "active", txHash: null, payer: null, paidAmount: null, offrampJobId: null, offrampTargetCurrency: null, offrampStatus: null, createdAt: Date.now(), updatedAt: Date.now() }) as PaymentLink),
+    create: vi.fn(async (input) => ({ ...input, status: "active", txHash: null, payer: null, paidAmount: null, overpaidAmount: null, offrampJobId: null, offrampTargetCurrency: null, offrampStatus: null, createdAt: Date.now(), updatedAt: Date.now() }) as PaymentLink),
     findById: vi.fn(async () => null),
     findByReference: vi.fn(async () => null),
     listBySeller: vi.fn(async () => []),
@@ -32,6 +32,8 @@ function fakeLinks(): LinkRepository {
     activeDestinations: vi.fn(async () => []),
     openLinksForDestination: vi.fn(async () => []),
     save: vi.fn(async () => {}),
+    recordPayment: vi.fn(async () => {}),
+    sumPaymentsForLink: vi.fn(async () => "0"),
   };
 }
 

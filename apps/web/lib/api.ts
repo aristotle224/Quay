@@ -268,6 +268,17 @@ export const api = {
 
   health: () => http<HealthResponse>("/health"),
 
+  quoteCashOut: (id: string, targetCurrency: string) =>
+    http<{
+      quoteId: string;
+      sourceAmount: string;
+      targetCurrency: string;
+      targetAmount: string; // Gross
+      rate: string;
+      fee: { amount: string; currency: string; source: string };
+      netTargetAmount: string; // Net
+    }>(`/links/${id}/cash-out/quote?targetCurrency=${targetCurrency}`),
+
   cashOut: (
     id: string,
     targetCurrency: string,

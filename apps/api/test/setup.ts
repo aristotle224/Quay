@@ -14,6 +14,7 @@ import { SessionIssuer } from "../src/services/session";
 import type { Container } from "../src/services/container";
 import { NoKycRequired } from "@checkout/offramp";
 import { LinkService } from "../src/services/link-service";
+import { NOOP_LOGGER } from "@checkout/core";
 import type {
   AssetRef,
   PaymentRequest,
@@ -23,6 +24,7 @@ import type {
   OffRampPort,
   OffRampQuote,
   OffRampJob,
+  OffRampInitiation,
 } from "@checkout/core";
 import type { StellarConfig } from "@checkout/stellar";
 import type { DB } from "../src/db/client";
@@ -149,14 +151,17 @@ export class FakeOffRampPort implements OffRampPort {
     targetCurrency: string;
   }): Promise<OffRampQuote> {
     const rate = input.targetCurrency === "NGN" ? 1650 : 1;
+    const targetAmount = (Number(input.sourceAmount) * rate).toFixed(2);
     return {
       quoteId: `quote_${this.nextQuoteId++}`,
       sourceAsset: input.sourceAsset,
       sourceAmount: input.sourceAmount,
       targetCurrency: input.targetCurrency,
-      targetAmount: (Number(input.sourceAmount) * rate).toFixed(2),
+      targetAmount,
       rate: String(rate),
       expiresAt: Date.now() + 300_000,
+      fee: { amount: "0", currency: input.targetCurrency, source: "estimated" },
+      netTargetAmount: targetAmount,
     };
   }
 
@@ -164,15 +169,8 @@ export class FakeOffRampPort implements OffRampPort {
     linkId: string;
     quoteId: string;
     payout: { currency: string; fields: Record<string, string> };
-  }): Promise<OffRampJob> {
-    return {
-      jobId: `job_${this.nextJobId++}`,
-      linkId: input.linkId,
-      status: "pending",
-      targetCurrency: input.payout.currency,
-      targetAmount: "1000.00",
-      rate: "1650",
-    };
+  }): Promise<OffRampInitiation> {
+    return { kind: "fields", jobId: `job_${this.nextJobId++}` };
   }
 
   async status(_jobId: string): Promise<OffRampJob> {
@@ -247,6 +245,7 @@ export async function createTestContainer(): Promise<TestContainer> {
 
   return {
     service,
+    logger: NOOP_LOGGER,
     links: repos.links,
     sellers: repos.sellers,
     webhooks: repos.webhooks,

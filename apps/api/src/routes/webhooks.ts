@@ -5,6 +5,7 @@ import type { PublicWebhook, Webhook } from "@checkout/core";
 import type { Container } from "../services/container";
 import { requireSeller, type AuthedVariables } from "../middleware/auth";
 import { guardWebhookUrl } from "../services/ssrf-guard";
+import { getLogger } from "../request-context";
 
 const HOST_ALLOWLIST = process.env.WEBHOOK_HOST_ALLOWLIST
   ? process.env.WEBHOOK_HOST_ALLOWLIST.split(",").map((s) => s.trim()).filter(Boolean)
@@ -29,6 +30,7 @@ export function webhookRoutes(c: Container): Hono<{ Variables: AuthedVariables }
 
   // Register a webhook. The secret is returned ONCE — store it to verify signatures.
   app.post("/", async (ctx) => {
+    const log = getLogger(ctx);
     let body: unknown;
     try {
       body = await ctx.req.json();
@@ -36,7 +38,10 @@ export function webhookRoutes(c: Container): Hono<{ Variables: AuthedVariables }
       body = {};
     }
     const parsed = registerWebhookSchema.safeParse(body);
-    if (!parsed.success) return ctx.json({ error: "invalid_body", issues: parsed.error.issues }, 400);
+    if (!parsed.success) {
+      log.warn({ event: "webhook.register.invalid", issues: parsed.error.issues }, "invalid register webhook body");
+      return ctx.json({ error: "invalid_body", issues: parsed.error.issues }, 400);
+    }
 
     // SSRF guard: validate the URL and resolve the hostname before storing.
     const guard = await (c.webhookGuard ?? ((u: string) => guardWebhookUrl(u, { allowlist: HOST_ALLOWLIST })))(
@@ -49,6 +54,7 @@ export function webhookRoutes(c: Container): Hono<{ Variables: AuthedVariables }
     const seller = ctx.get("seller");
     const secret = generateSecret();
     const hook = await c.webhooks.create({ sellerId: seller.id, url: parsed.data.url, secret });
+    log.info({ event: "webhook.registered", webhookId: hook.id, sellerId: seller.id }, "webhook registered");
     return ctx.json({ ...toPublic(hook), secret }, 201);
   });
 

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { NOOP_LOGGER } from "@checkout/core";
 import type { Container } from "../src/services/container";
 import { metricsRoutes } from "../src/routes/metrics";
 
 function fakeContainer(): Container {
   return {
     service: { webhookQueueDepth: () => 2 } as unknown as Container["service"],
+    logger: NOOP_LOGGER,
     links: {
       activeDestinations: async () => ["GA...1", "GA...2"],
       listByStatus: async () => [{}, {}, {}],

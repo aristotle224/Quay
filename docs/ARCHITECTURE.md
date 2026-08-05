@@ -252,6 +252,7 @@ stateDiagram-v2
   active --> expired
   active --> cancelled
   underpaid --> paid
+  underpaid --> underpaid
   underpaid --> expired
   underpaid --> cancelled
   paid --> offramp_pending

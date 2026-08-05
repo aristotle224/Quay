@@ -1,5 +1,9 @@
 import type { AssetRef, PaymentLink } from "../domain/payment-link";
 import type { NormalizedPayment } from "../matching/match-payment";
+import type { Logger } from "./logger";
+
+export type { Logger } from "./logger";
+export { NOOP_LOGGER } from "./logger";
 
 // ---------------------------------------------------------------------------
 // Settlement rail port
@@ -97,9 +101,11 @@ export interface OffRampQuote {
   sourceAsset: AssetRef;
   sourceAmount: string;
   targetCurrency: string; // ISO code, e.g. "NGN"
-  targetAmount: string; // what the seller will receive
+  targetAmount: string; // gross amount before fees
   rate: string; // sourceAsset -> targetCurrency
   expiresAt: number; // epoch ms — after this the quote is void
+  fee: { amount: string; currency: string; source: "anchor" | "estimated" };
+  netTargetAmount: string; // what the seller actually receives
 }
 
 /** Thrown when a quote's expiresAt has passed or is unparsable (NaN). */
@@ -140,18 +146,23 @@ export interface OffRampJob {
   reason?: string; // set when failed
 }
 
+export type OffRampInitiation =
+  | { kind: "fields"; jobId: string }
+  | { kind: "interactive"; jobId: string; url: string };
+
 export interface OffRampPort {
   readonly mode: OffRampMode;
-  quote(input: {
-    linkId: string;
-    sourceAsset: AssetRef;
-    sourceAmount: string;
-    targetCurrency: string;
-  }): Promise<OffRampQuote>;
-  initiate(input: { linkId: string; quoteId: string; payout: SellerPayoutRef }): Promise<OffRampJob>;
+  quote(
+    input: { linkId: string; sourceAsset: AssetRef; sourceAmount: string; targetCurrency: string },
+    opts?: { logger?: Logger },
+  ): Promise<OffRampQuote>;
+  initiate(
+    input: { linkId: string; quoteId: string; payout: SellerPayoutRef },
+    opts?: { logger?: Logger },
+  ): Promise<OffRampInitiation>;
   /** Throws {@link OffRampJobNotFoundError} when `jobId` has no known state — a
    *  crash/redeploy wiped an in-memory-only implementation, or the id is bogus. */
-  status(jobId: string): Promise<OffRampJob>;
+  status(jobId: string, opts?: { logger?: Logger }): Promise<OffRampJob>;
   /**
    * Indicative prices for all available buy currencies — SEP-38 GET /prices.
    * Unauthenticated, no quote consumed. Used by the dashboard to show rates
@@ -306,6 +317,18 @@ export interface CreateLinkInput {
   isDemo?: boolean;
 }
 
+/** One incoming payment recorded against a link — the authoritative ledger
+ *  row cumulative accounting sums over (issue 1.4). `txHash` is unique so a
+ *  reprocessed payment can never double-count. */
+export interface LinkPaymentRecord {
+  linkId: string;
+  txHash: string;
+  payer: string;
+  amount: string;
+  asset: AssetRef;
+  createdAt: number;
+}
+
 export interface LinkRepository {
   create(input: CreateLinkInput): Promise<PaymentLink>;
   findById(id: string): Promise<PaymentLink | null>;
@@ -318,6 +341,12 @@ export interface LinkRepository {
   /** Active (or underpaid) links whose value lands in `destination`. */
   openLinksForDestination(destination: string): Promise<PaymentLink[]>;
   save(link: PaymentLink): Promise<void>;
+  /** Append a payment to the link's ledger. A duplicate `txHash` is a no-op —
+   *  cumulative accounting must never double-count a reprocessed payment. */
+  recordPayment(payment: LinkPaymentRecord): Promise<void>;
+  /** Sum of every payment ever recorded for this link, as a decimal string
+   *  ("0" if none). The authoritative source `paidAmount` is cached from. */
+  sumPaymentsForLink(linkId: string): Promise<string>;
 }
 
 export interface Seller {

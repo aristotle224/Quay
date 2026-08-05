@@ -18,13 +18,22 @@ const BOOTSTRAP_SQL = [
      id TEXT PRIMARY KEY, reference TEXT NOT NULL UNIQUE, seller_id TEXT NOT NULL,
      destination TEXT NOT NULL, muxed_id TEXT, title TEXT NOT NULL, amount TEXT NOT NULL,
      asset_code TEXT NOT NULL, asset_issuer TEXT, status TEXT NOT NULL,
-     tx_hash TEXT, payer TEXT, paid_amount TEXT,
+     tx_hash TEXT, payer TEXT, paid_amount TEXT, overpaid_amount TEXT,
      offramp_job_id TEXT, offramp_target_currency TEXT, offramp_status TEXT,
      offramp_indicative_rate TEXT, offramp_rate TEXT, offramp_rate_delta TEXT,
+     offramp_fee_amount TEXT, offramp_fee_currency TEXT, offramp_fee_source TEXT,
+     offramp_net_target_amount TEXT, is_demo INTEGER NOT NULL DEFAULT 0,
      expires_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
    )`,
-  // Idempotent migration for databases created before the is_demo column was added.
-  `ALTER TABLE links ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0`,
+  // Cumulative payment ledger (issue 1.4) — one row per payment ever recorded
+  // against a link, `tx_hash` unique so a reprocessed payment can't double-count.
+  `CREATE TABLE IF NOT EXISTS link_payments (
+     id TEXT PRIMARY KEY, link_id TEXT NOT NULL, tx_hash TEXT NOT NULL UNIQUE,
+     payer TEXT NOT NULL, amount TEXT NOT NULL,
+     asset_code TEXT NOT NULL, asset_issuer TEXT,
+     created_at INTEGER NOT NULL
+   )`,
+  `CREATE INDEX IF NOT EXISTS link_payments_link_id_idx ON link_payments (link_id)`,
   `CREATE TABLE IF NOT EXISTS webhooks (
      id TEXT PRIMARY KEY, seller_id TEXT NOT NULL, url TEXT NOT NULL,
      secret_encrypted TEXT NOT NULL, secret_last4 TEXT NOT NULL,
@@ -83,6 +92,7 @@ const MIGRATION_SQL = [
   `ALTER TABLE links ADD COLUMN offramp_indicative_rate TEXT`,
   `ALTER TABLE links ADD COLUMN offramp_rate TEXT`,
   `ALTER TABLE links ADD COLUMN offramp_rate_delta TEXT`,
+  `ALTER TABLE links ADD COLUMN overpaid_amount TEXT`,
 ];
 
 export function createDb(databaseUrl: string, authToken?: string): { db: DB; client: Client } {
@@ -94,7 +104,14 @@ export function createDb(databaseUrl: string, authToken?: string): { db: DB; cli
 // Additive column added after the initial release. `CREATE TABLE IF NOT EXISTS`
 // above won't touch an existing table, so add it out-of-band; ignore the
 // "duplicate column" error on databases that already have it.
-const MIGRATIONS_SQL = [`ALTER TABLE links ADD COLUMN muxed_id TEXT`];
+const MIGRATIONS_SQL = [
+  `ALTER TABLE links ADD COLUMN muxed_id TEXT`,
+  `ALTER TABLE links ADD COLUMN offramp_fee_amount TEXT`,
+  `ALTER TABLE links ADD COLUMN offramp_fee_currency TEXT`,
+  `ALTER TABLE links ADD COLUMN offramp_fee_source TEXT`,
+  `ALTER TABLE links ADD COLUMN offramp_net_target_amount TEXT`,
+  `ALTER TABLE links ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0`,
+];
 
 /**
  * Upgrades a `webhooks` table created before the secret-rotation feature

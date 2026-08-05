@@ -1,9 +1,11 @@
 import {
   matchPayment,
   type LinkRepository,
+  type Logger,
   type PaymentLink,
   type WatcherPort,
   type WatcherStateRepository,
+  NOOP_LOGGER,
 } from "@checkout/core";
 import { AnchorHealth, type LinkService } from "../services/link-service";
 import { env } from "../env";
@@ -93,11 +95,13 @@ export class WatcherLoop {
       state: WatcherStateRepository;
       service: LinkService;
       pollMs: number;
+      logger?: Logger;
       pageLimit?: number;
       maxPagesPerTick?: number;
       log?: (msg: string) => void;
     },
   ) {
+    this.deps.logger = this.deps.logger ?? NOOP_LOGGER;
     this.pageLimit = deps.pageLimit ?? DEFAULT_PAGE_LIMIT;
     this.maxPagesPerTick = deps.maxPagesPerTick ?? DEFAULT_MAX_PAGES_PER_TICK;
   }
@@ -254,7 +258,7 @@ export class WatcherLoop {
     }
 
     try {
-      await this.processAccount(account);
+      await this.processAccount(account, this.deps.logger!.child({ account }));
       
       // Reset error state on success
       state.consecutiveErrors = 0;
@@ -333,7 +337,7 @@ export class WatcherLoop {
     return chunks;
   }
 
-  private async processAccount(account: string): Promise<void> {
+  private async processAccount(account: string, log: Logger): Promise<void> {
     const cursor = await this.deps.state.getCursor(account);
     const state = this.getOrCreateAccountState(account);
 
@@ -342,6 +346,10 @@ export class WatcherLoop {
     if (cursor === null) {
       const latest = await this.deps.watcher.latestCursor(account);
       await this.deps.state.setCursor(account, latest ?? "");
+      log.info(
+        { event: "watcher.account.seeded", fromCursor: null, toCursor: latest },
+        "watcher account seeded",
+      );
       return;
     }
 
@@ -370,7 +378,11 @@ export class WatcherLoop {
       let lastToken = pageCursor;
       for (const payment of payments) {
         lastToken = payment.pagingToken;
-        if (await this.deps.state.isProcessed(payment.txHash)) continue;
+        const child = log.child({ txHash: payment.txHash, pagingToken: payment.pagingToken });
+        if (await this.deps.state.isProcessed(payment.txHash)) {
+          child.info({ event: "payment.duplicate" }, "skipping already-processed payment");
+          continue;
+        }
 
         const outcome = matchPayment(payment, (ref) => byRef.get(ref), (id) => byMuxedId.get(id));
         metrics.paymentsMatchedTotal.inc({ outcome: outcome.kind });
@@ -378,9 +390,13 @@ export class WatcherLoop {
           outcome.kind === "paid" || outcome.kind === "underpaid" || outcome.kind === "asset_mismatch"
             ? outcome.link.id
             : null;
+        child.info(
+          { event: "payment.matched", outcome: outcome.kind, linkId, amount: payment.amount, memo: payment.memo },
+          `payment ${outcome.kind}`,
+        );
 
         if (outcome.kind === "paid" || outcome.kind === "underpaid") {
-          const becamePaid = await this.deps.service.applyMatch(payment, outcome);
+          const becamePaid = await this.deps.service.applyMatch(payment, outcome, { logger: child });
           this.deps.log?.(
             `payment ${short(payment.txHash)} -> ${outcome.kind}` +
               (becamePaid ? ` (link ${linkId} PAID)` : ""),
@@ -402,9 +418,9 @@ export class WatcherLoop {
             (terminal.status === "expired" || terminal.status === "cancelled")
           ) {
             await this.deps.service.recordUnmatchedPayment(payment, terminal);
-            this.deps.log?.(
-              `payment ${short(payment.txHash)} -> unmatched against ` +
-                `${terminal.status} link ${terminal.id}`,
+            child.info(
+              { event: "payment.unmatched", linkId: terminal.id, status: terminal.status },
+              `payment unmatched against ${terminal.status} link ${terminal.id}`,
             );
           }
         }
@@ -424,20 +440,25 @@ export class WatcherLoop {
       }
 
       if (page === this.maxPagesPerTick) {
-        this.deps.log?.(
+        const message =
           `watcher account ${short(account)} hit maxPagesPerTick (${this.maxPagesPerTick}) - ` +
-            `backlog not fully drained this tick, more remains for the next poll. ` +
-            `If this recurs, move this account to a streaming watcher (issue 2.1).`,
-        );
+          `backlog not fully drained this tick, more remains for the next poll. ` +
+          `If this recurs, move this account to a streaming watcher (issue 2.1).`;
+        this.deps.log?.(message);
+        log.info({ event: "watcher.account.batch", account, maxPagesPerTick: this.maxPagesPerTick }, message);
       }
     }
   }
 }
 
 /** Periodically advance any pending seller cash-outs. */
-export function startCashOutPoller(service: LinkService, intervalMs: number): () => void {
+export function startCashOutPoller(service: LinkService, intervalMs: number, logger?: Logger): () => void {
+  const log = logger ?? NOOP_LOGGER;
+  const pollerLogger = log.child({ component: "cashout-poller" });
   const timer = setInterval(() => {
-    void service.pollCashOuts().catch(() => {});
+    void service.pollCashOuts().catch((err) => {
+      pollerLogger.error({ event: "cashout.tick.error", error: stringifyErr(err) }, "cash-out tick error");
+    });
   }, intervalMs);
   return () => clearInterval(timer);
 }
