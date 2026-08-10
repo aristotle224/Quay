@@ -1,12 +1,12 @@
 {
   "targets": {
     "api": {
-      "consecutiveFailures": 0,
-      "lastStatus": "up",
-      "lastCheckedAt": "2026-08-09T23:53:39.251Z",
+      "consecutiveFailures": 1,
+      "lastStatus": "down",
+      "lastCheckedAt": "2026-08-10T02:00:01.700Z",
       "today": {
-        "date": "2026-08-09",
-        "up": 29,
+        "date": "2026-08-10",
+        "up": 0,
         "down": 1
       },
       "history": [
@@ -69,17 +69,22 @@
           "date": "2026-08-08",
           "up": 28,
           "down": 3
+        },
+        {
+          "date": "2026-08-09",
+          "up": 29,
+          "down": 1
         }
       ],
-      "lastError": null
+      "lastError": "This operation was aborted"
     },
     "web": {
       "consecutiveFailures": 0,
       "lastStatus": "up",
-      "lastCheckedAt": "2026-08-09T23:53:39.572Z",
+      "lastCheckedAt": "2026-08-10T02:00:02.088Z",
       "today": {
-        "date": "2026-08-09",
-        "up": 30,
+        "date": "2026-08-10",
+        "up": 1,
         "down": 0
       },
       "history": [
@@ -142,18 +147,23 @@
           "date": "2026-08-08",
           "up": 31,
           "down": 0
+        },
+        {
+          "date": "2026-08-09",
+          "up": 30,
+          "down": 0
         }
       ],
       "lastError": null
     },
     "synthetic": {
-      "consecutiveFailures": 124,
+      "consecutiveFailures": 125,
       "lastStatus": "down",
-      "lastCheckedAt": "2026-08-09T23:53:39.632Z",
+      "lastCheckedAt": "2026-08-10T02:00:17.088Z",
       "today": {
-        "date": "2026-08-09",
+        "date": "2026-08-10",
         "up": 0,
-        "down": 30
+        "down": 1
       },
       "history": [
         {
@@ -215,9 +225,14 @@
           "date": "2026-08-08",
           "up": 0,
           "down": 31
+        },
+        {
+          "date": "2026-08-09",
+          "up": 0,
+          "down": 30
         }
       ],
-      "lastError": "POST https://quay-api.onrender.com/links -> HTTP 401 (expected 201)"
+      "lastError": "This operation was aborted"
     }
   }
 }
