@@ -3,11 +3,11 @@
     "api": {
       "consecutiveFailures": 0,
       "lastStatus": "up",
-      "lastCheckedAt": "2026-08-19T23:55:16.213Z",
+      "lastCheckedAt": "2026-08-20T01:41:25.543Z",
       "today": {
-        "date": "2026-08-19",
-        "up": 28,
-        "down": 9
+        "date": "2026-08-20",
+        "up": 1,
+        "down": 0
       },
       "history": [
         {
@@ -119,6 +119,11 @@
           "date": "2026-08-18",
           "up": 34,
           "down": 3
+        },
+        {
+          "date": "2026-08-19",
+          "up": 28,
+          "down": 9
         }
       ],
       "lastError": null
@@ -126,10 +131,10 @@
     "web": {
       "consecutiveFailures": 0,
       "lastStatus": "up",
-      "lastCheckedAt": "2026-08-19T23:55:16.396Z",
+      "lastCheckedAt": "2026-08-20T01:41:25.654Z",
       "today": {
-        "date": "2026-08-19",
-        "up": 37,
+        "date": "2026-08-20",
+        "up": 1,
         "down": 0
       },
       "history": [
@@ -242,18 +247,23 @@
           "date": "2026-08-18",
           "up": 37,
           "down": 0
+        },
+        {
+          "date": "2026-08-19",
+          "up": 37,
+          "down": 0
         }
       ],
       "lastError": null
     },
     "synthetic": {
-      "consecutiveFailures": 430,
+      "consecutiveFailures": 431,
       "lastStatus": "down",
-      "lastCheckedAt": "2026-08-19T23:55:16.662Z",
+      "lastCheckedAt": "2026-08-20T01:41:25.721Z",
       "today": {
-        "date": "2026-08-19",
+        "date": "2026-08-20",
         "up": 0,
-        "down": 37
+        "down": 1
       },
       "history": [
         {
@@ -363,6 +373,11 @@
         },
         {
           "date": "2026-08-18",
+          "up": 0,
+          "down": 37
+        },
+        {
+          "date": "2026-08-19",
           "up": 0,
           "down": 37
         }
