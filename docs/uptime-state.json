@@ -1,12 +1,12 @@
 {
   "targets": {
     "api": {
-      "consecutiveFailures": 2,
-      "lastStatus": "down",
-      "lastCheckedAt": "2026-08-26T12:18:09.903Z",
+      "consecutiveFailures": 0,
+      "lastStatus": "up",
+      "lastCheckedAt": "2026-08-26T13:30:15.162Z",
       "today": {
         "date": "2026-08-26",
-        "up": 9,
+        "up": 10,
         "down": 5
       },
       "history": [
@@ -156,15 +156,15 @@
           "down": 6
         }
       ],
-      "lastError": "This operation was aborted"
+      "lastError": null
     },
     "web": {
       "consecutiveFailures": 0,
       "lastStatus": "up",
-      "lastCheckedAt": "2026-08-26T12:18:10.019Z",
+      "lastCheckedAt": "2026-08-26T13:30:15.273Z",
       "today": {
         "date": "2026-08-26",
-        "up": 14,
+        "up": 15,
         "down": 0
       },
       "history": [
@@ -317,13 +317,13 @@
       "lastError": null
     },
     "synthetic": {
-      "consecutiveFailures": 665,
+      "consecutiveFailures": 666,
       "lastStatus": "down",
-      "lastCheckedAt": "2026-08-26T12:18:15.139Z",
+      "lastCheckedAt": "2026-08-26T13:30:15.386Z",
       "today": {
         "date": "2026-08-26",
         "up": 0,
-        "down": 14
+        "down": 15
       },
       "history": [
         {
