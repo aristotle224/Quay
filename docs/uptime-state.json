@@ -1,13 +1,13 @@
 {
   "targets": {
     "api": {
-      "consecutiveFailures": 0,
-      "lastStatus": "up",
-      "lastCheckedAt": "2026-08-25T23:58:07.388Z",
+      "consecutiveFailures": 1,
+      "lastStatus": "down",
+      "lastCheckedAt": "2026-08-26T01:52:36.031Z",
       "today": {
-        "date": "2026-08-25",
-        "up": 27,
-        "down": 6
+        "date": "2026-08-26",
+        "up": 0,
+        "down": 1
       },
       "history": [
         {
@@ -149,17 +149,22 @@
           "date": "2026-08-24",
           "up": 27,
           "down": 5
+        },
+        {
+          "date": "2026-08-25",
+          "up": 27,
+          "down": 6
         }
       ],
-      "lastError": null
+      "lastError": "This operation was aborted"
     },
     "web": {
       "consecutiveFailures": 0,
       "lastStatus": "up",
-      "lastCheckedAt": "2026-08-25T23:58:07.585Z",
+      "lastCheckedAt": "2026-08-26T01:52:36.188Z",
       "today": {
-        "date": "2026-08-25",
-        "up": 33,
+        "date": "2026-08-26",
+        "up": 1,
         "down": 0
       },
       "history": [
@@ -302,18 +307,23 @@
           "date": "2026-08-24",
           "up": 32,
           "down": 0
+        },
+        {
+          "date": "2026-08-25",
+          "up": 33,
+          "down": 0
         }
       ],
       "lastError": null
     },
     "synthetic": {
-      "consecutiveFailures": 651,
+      "consecutiveFailures": 652,
       "lastStatus": "down",
-      "lastCheckedAt": "2026-08-25T23:58:07.919Z",
+      "lastCheckedAt": "2026-08-26T01:52:46.415Z",
       "today": {
-        "date": "2026-08-25",
+        "date": "2026-08-26",
         "up": 0,
-        "down": 33
+        "down": 1
       },
       "history": [
         {
@@ -455,6 +465,11 @@
           "date": "2026-08-24",
           "up": 0,
           "down": 32
+        },
+        {
+          "date": "2026-08-25",
+          "up": 0,
+          "down": 33
         }
       ],
       "lastError": "POST https://quay-api.onrender.com/links -> HTTP 401 (expected 201)"
