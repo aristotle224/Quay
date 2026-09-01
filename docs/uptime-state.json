@@ -1,13 +1,13 @@
 {
   "targets": {
     "api": {
-      "consecutiveFailures": 10,
+      "consecutiveFailures": 11,
       "lastStatus": "down",
-      "lastCheckedAt": "2026-08-31T23:58:06.610Z",
+      "lastCheckedAt": "2026-09-01T04:56:05.505Z",
       "today": {
-        "date": "2026-08-31",
+        "date": "2026-09-01",
         "up": 0,
-        "down": 5
+        "down": 1
       },
       "history": [
         {
@@ -179,6 +179,11 @@
           "date": "2026-08-30",
           "up": 1,
           "down": 5
+        },
+        {
+          "date": "2026-08-31",
+          "up": 0,
+          "down": 5
         }
       ],
       "lastError": "This operation was aborted"
@@ -186,10 +191,10 @@
     "web": {
       "consecutiveFailures": 0,
       "lastStatus": "up",
-      "lastCheckedAt": "2026-08-31T23:58:06.941Z",
+      "lastCheckedAt": "2026-09-01T04:56:05.841Z",
       "today": {
-        "date": "2026-08-31",
-        "up": 5,
+        "date": "2026-09-01",
+        "up": 1,
         "down": 0
       },
       "history": [
@@ -362,18 +367,23 @@
           "date": "2026-08-30",
           "up": 6,
           "down": 0
+        },
+        {
+          "date": "2026-08-31",
+          "up": 5,
+          "down": 0
         }
       ],
       "lastError": null
     },
     "synthetic": {
-      "consecutiveFailures": 693,
+      "consecutiveFailures": 694,
       "lastStatus": "down",
-      "lastCheckedAt": "2026-08-31T23:58:15.102Z",
+      "lastCheckedAt": "2026-09-01T04:56:20.843Z",
       "today": {
-        "date": "2026-08-31",
+        "date": "2026-09-01",
         "up": 0,
-        "down": 5
+        "down": 1
       },
       "history": [
         {
@@ -545,9 +555,14 @@
           "date": "2026-08-30",
           "up": 0,
           "down": 6
+        },
+        {
+          "date": "2026-08-31",
+          "up": 0,
+          "down": 5
         }
       ],
-      "lastError": "POST https://quay-api.onrender.com/links -> HTTP 401 (expected 201)"
+      "lastError": "This operation was aborted"
     }
   }
 }
