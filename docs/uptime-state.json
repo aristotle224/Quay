@@ -1,13 +1,13 @@
 {
   "targets": {
     "api": {
-      "consecutiveFailures": 0,
-      "lastStatus": "up",
-      "lastCheckedAt": "2026-09-20T20:53:13.581Z",
+      "consecutiveFailures": 1,
+      "lastStatus": "down",
+      "lastCheckedAt": "2026-09-20T23:01:45.762Z",
       "today": {
         "date": "2026-09-20",
         "up": 6,
-        "down": 0
+        "down": 1
       },
       "history": [
         {
@@ -281,15 +281,15 @@
           "down": 1
         }
       ],
-      "lastError": null
+      "lastError": "This operation was aborted"
     },
     "web": {
       "consecutiveFailures": 0,
       "lastStatus": "up",
-      "lastCheckedAt": "2026-09-20T20:53:13.775Z",
+      "lastCheckedAt": "2026-09-20T23:01:45.966Z",
       "today": {
         "date": "2026-09-20",
-        "up": 6,
+        "up": 7,
         "down": 0
       },
       "history": [
@@ -567,13 +567,13 @@
       "lastError": null
     },
     "synthetic": {
-      "consecutiveFailures": 831,
+      "consecutiveFailures": 832,
       "lastStatus": "down",
-      "lastCheckedAt": "2026-09-20T20:53:13.891Z",
+      "lastCheckedAt": "2026-09-20T23:02:00.967Z",
       "today": {
         "date": "2026-09-20",
         "up": 0,
-        "down": 6
+        "down": 7
       },
       "history": [
         {
@@ -847,7 +847,7 @@
           "down": 8
         }
       ],
-      "lastError": "POST https://quay-api.onrender.com/links -> HTTP 401 (expected 201)"
+      "lastError": "This operation was aborted"
     }
   }
 }
